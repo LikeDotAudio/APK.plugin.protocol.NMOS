@@ -1,0 +1,11 @@
+{
+  "_note": {
+    "_": "This key is not a family. Keys beginning with _ are notes.",
+    "one_crate_one_gui": "This manifest declares only the families whose panels sit beside it, in this crate's gui/. The orchestrator merges every crate gui/manifest.json with Instruments:VISA/manifest.json into one table keyed by device type, so a family is declared exactly once, in the crate that speaks its protocol.",
+    "tree_names_the_display": "'tree' names the frame tree these consoles land in. Omitting it means the Instruments tab, which is the bench; every family here names 7_Device_Consoles because a discovered device is not bench equipment."
+  },
+  "nmos": {
+    "tab": "5_NMOS",
+    "tree": "7_Device_Consoles"
+  }
+}

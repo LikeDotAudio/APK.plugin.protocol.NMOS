@@ -1,0 +1,215 @@
+{
+  "nmos_Console": {
+    "type": "OcaBin",
+    "id": "50.100.24.1",
+    "geometry": {
+      "anchor": "NSEW"
+    },
+    "behavior": {
+      "overflow_ns": "auto",
+      "overflow_ew": "auto",
+      "fluid_ew": true
+    },
+    "description": {
+      "En": "NMOS node — ${model}",
+      "Fr": "NMOS node — ${model}",
+      "De": "NMOS node — ${model}",
+      "Es": "NMOS node — ${model}"
+    },
+    "blocks": {
+      "Identity": {
+        "type": "OcaBlock",
+        "description": {
+          "En": "NMOS node",
+          "Fr": "Identité",
+          "De": "Identität",
+          "Es": "Identidad",
+          "show_label": true
+        },
+        "layout_columns": 2,
+        "layout": {
+          "pady": 4,
+          "sticky": "nsew"
+        },
+        "fields": {
+          "service": {
+            "type": "_TextInput",
+            "label": {
+              "En": "Service",
+              "Fr": "Service",
+              "De": "Service",
+              "Es": "Service"
+            },
+            "value_default": "---",
+            "device_state": "service",
+            "read_only": true,
+            "layout": {
+              "width": "100%",
+              "font": 13
+            }
+          },
+          "role": {
+            "type": "_TextInput",
+            "label": {
+              "En": "Role",
+              "Fr": "Role",
+              "De": "Role",
+              "Es": "Role"
+            },
+            "value_default": "---",
+            "device_state": "role",
+            "read_only": true,
+            "layout": {
+              "width": "100%",
+              "font": 13
+            }
+          },
+          "vendor": {
+            "type": "_TextInput",
+            "label": {
+              "En": "Vendor",
+              "Fr": "Vendor",
+              "De": "Vendor",
+              "Es": "Vendor"
+            },
+            "value_default": "---",
+            "device_state": "vendor",
+            "read_only": true,
+            "layout": {
+              "width": "100%",
+              "font": 13
+            }
+          },
+          "api_versions": {
+            "type": "_TextInput",
+            "label": {
+              "En": "API versions",
+              "Fr": "API versions",
+              "De": "API versions",
+              "Es": "API versions"
+            },
+            "value_default": "---",
+            "device_state": "api_versions",
+            "read_only": true,
+            "layout": {
+              "width": "100%",
+              "font": 13
+            }
+          },
+          "api_proto": {
+            "type": "_TextInput",
+            "label": {
+              "En": "API protocol",
+              "Fr": "API protocol",
+              "De": "API protocol",
+              "Es": "API protocol"
+            },
+            "value_default": "---",
+            "device_state": "api_proto",
+            "read_only": true,
+            "layout": {
+              "width": "100%",
+              "font": 13
+            }
+          },
+          "api_auth": {
+            "type": "_TextInput",
+            "label": {
+              "En": "API auth",
+              "Fr": "API auth",
+              "De": "API auth",
+              "Es": "API auth"
+            },
+            "value_default": "---",
+            "device_state": "api_auth",
+            "read_only": true,
+            "layout": {
+              "width": "100%",
+              "font": 13
+            }
+          },
+          "priority": {
+            "type": "_TextInput",
+            "label": {
+              "En": "Priority",
+              "Fr": "Priority",
+              "De": "Priority",
+              "Es": "Priority"
+            },
+            "value_default": "---",
+            "device_state": "priority",
+            "read_only": true,
+            "layout": {
+              "width": "100%",
+              "font": 13
+            }
+          },
+          "host": {
+            "type": "_TextInput",
+            "label": {
+              "En": "Host",
+              "Fr": "Host",
+              "De": "Host",
+              "Es": "Host"
+            },
+            "value_default": "---",
+            "device_state": "host",
+            "read_only": true,
+            "layout": {
+              "width": "100%",
+              "font": 13
+            }
+          },
+          "port": {
+            "type": "_TextInput",
+            "label": {
+              "En": "Port",
+              "Fr": "Port",
+              "De": "Port",
+              "Es": "Port"
+            },
+            "value_default": "---",
+            "device_state": "port",
+            "read_only": true,
+            "layout": {
+              "width": "100%",
+              "font": 13
+            }
+          },
+          "addresses": {
+            "type": "_TextInput",
+            "label": {
+              "En": "Address",
+              "Fr": "Address",
+              "De": "Address",
+              "Es": "Address"
+            },
+            "value_default": "---",
+            "device_state": "addresses",
+            "read_only": true,
+            "layout": {
+              "width": "100%",
+              "font": 13
+            }
+          },
+          "last_seen": {
+            "type": "_TextInput",
+            "label": {
+              "En": "Last seen",
+              "Fr": "Last seen",
+              "De": "Last seen",
+              "Es": "Last seen"
+            },
+            "value_default": "---",
+            "device_state": "last_seen",
+            "read_only": true,
+            "layout": {
+              "width": "100%",
+              "font": 13
+            }
+          }
+        }
+      }
+    }
+  }
+}
