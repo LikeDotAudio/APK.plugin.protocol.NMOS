@@ -5,11 +5,11 @@ version = "0.1.0"
 edition.workspace = true
 
 [dependencies]
-# The container entry point in src/bin/apk-nmos.rs (PLAN-3316.01), and the crate
-# it runs beside: NMOS_CONTROL's IS-04 registry agent is the second depth of the
-# same finding, so audit §10.2 groups the two into one `nmos` container.
+# The container entry point in src/bin/apk-nmos.rs (PLAN-3316.01). NMOS_CONTROL's
+# IS-04 registry agent used to run beside it in one `nmos` container (audit
+# §10.2); it is its own stack and container now (`apk-nmos-control`), so this
+# crate no longer depends on it.
 apk-plugin-runner = { path = "../../APK:plugins:Build/SRC/RUNNER" }
-apkaudio-nmos-control = { path = "../../APK:plugin:NMOS_CONTROL/SRC" }
 apkaudio-contracts = { path = "../../APK:BareMetal/SRC/contracts/rust" }
 mdns-sd = "0.20"
 rumqttc = "0.24"
