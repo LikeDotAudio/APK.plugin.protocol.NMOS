@@ -213,14 +213,39 @@ pub fn run_browse_agent(mqtt_host: &str, mqtt_port: u16) {
     // nothing.
     let mut published: HashMap<String, String> = HashMap::new();
     let mut arrived = presence::Presence::new();
+    // PRESENCE (PLAN-3318.01), one status document per API endpoint — the same
+    // host:port this agent already merges on. Departures-only (`config.ini`):
+    // mdns-sd resolves an endpoint again only when its record changes, and
+    // removes it on a goodbye or a lapsed TTL. A removal carries only the
+    // instance's full name, so `announced` maps it back to the endpoint.
+    let mut announced: HashMap<String, String> = HashMap::new();
 
     while let Ok((role, event)) = rx.recv() {
-        let ServiceEvent::ServiceResolved(info) = event else {
-            continue;
+        let info = match event {
+            ServiceEvent::ServiceResolved(info) => info,
+            ServiceEvent::ServiceRemoved(_, fullname) => {
+                if let Some(key) = announced.remove(&fullname) {
+                    if !announced.values().any(|k| *k == key) {
+                        println!("   👋 [NMOS] {key} stopped advertising");
+                        apk_plugin_runner::presence::gone(&nmos_sighting(&key).device_id());
+                    }
+                }
+                continue;
+            }
+            _ => continue,
         };
         let host = info.get_hostname().trim_end_matches('.').to_string();
         let port = info.get_port();
         let key = format!("{host}:{port}");
+        announced.insert(info.get_fullname().to_string(), key.clone());
+        apk_plugin_runner::presence::seen(
+            &nmos_sighting(&key),
+            Some(&format!(
+                "APK.audio/System/Protocols/nmos/Device/{}_{}",
+                sanitize_segment(&host),
+                port
+            )),
+        );
 
         let entry = services.entry(key).or_default();
         entry.host = host.clone();
@@ -308,6 +333,15 @@ pub fn run_browse_agent(mqtt_host: &str, mqtt_port: u16) {
             );
         }
     }
+}
+
+/// One API endpoint, as a presence sighting. PLAN-3318.01.
+///
+/// IDENTITY IS `host:port`, the key this agent merges every role on. Nothing of
+/// the sighting but its id reaches the wire — identity stays on the
+/// `System/Protocols/nmos/Device/…` topics above.
+fn nmos_sighting(endpoint: &str) -> apkaudio_contracts::device_publish::Sighting {
+    apkaudio_contracts::device_publish::Sighting::new("nmos", endpoint).class("Media Node")
 }
 
 #[cfg(test)]
