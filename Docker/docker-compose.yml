@@ -1,11 +1,11 @@
 # APK:plugin:NMOS — NMOS — the mDNS browse agent, one container.
 # The IS-04 registry agent that used to share this container is its own stack,
 # APK:plugin:NMOS_CONTROL: the two share nothing in memory, only the bus table.
-#     COMPOSE_PROFILES=discovery docker compose -f 'APK:PODS/POD:APK/APK:plugin:NMOS/Docker/docker-compose.yml' up -d --build
-# Normally started with the other plugins, by node role (see APK:plugins:Build):
-#     COMPOSE_PROFILES=discovery,l2 docker compose -f 'APK:PODS/POD:APK/APK:plugins:Build/Docker/docker-compose.yml' up -d
+#     COMPOSE_PROFILES=discovery docker compose -f 'APK:PODS/POD:APK_THICK/APK:plugin:NMOS/Docker/docker-compose.yml' up -d --build
+# Normally started with the other plugins, by node role (see discovery):
+#     COMPOSE_PROFILES=discovery,l2 docker compose -f 'APK:PODS/POD:APK_THICK/discovery/Docker/docker-compose.yml' up -d
 # The image, the capability floor, the broker variables and the healthcheck are
-# the base service in APK:plugins:Build/Docker/plugin-base.yml; this file says
+# the base service in discovery/Docker/plugin-base.yml; this file says
 # only what is THIS plugin's. No bind mounts, so no `bind:` sub-key to carry.
 
 # ONE PROJECT WITH THE REST (`apk-audio`), so the plugins clump with the node.
@@ -14,7 +14,7 @@ name: apk-audio
 services:
   nmos:
     extends:
-      file: "../../APK:plugins:Build/Docker/plugin-base.yml"
+      file: "../../../discovery/Docker/plugin-base.yml"
       service: plugin-host
     container_name: Plugin-NMOS
     command: ["apk-nmos"]

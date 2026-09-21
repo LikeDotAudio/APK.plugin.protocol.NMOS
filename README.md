@@ -4,7 +4,7 @@ NMOS — the mDNS browse agent, one container.
 
 | | |
 |---|---|
-| **Recipe** | `Docker/docker-compose.yml` — no Dockerfile: it runs a binary from the shared plugin image built by `APK:plugins:Build` |
+| **Recipe** | `Docker/docker-compose.yml` — no Dockerfile: it runs a binary from the shared plugin image built by `APK:discovery` |
 | **Source** | `SRC/` (this repository — https://github.com/LikeDotAudio/APK.plugin.protocol.NMOS.git) — bin `apk-nmos`, the mDNS browse agent; built by the shared plugin image |
 | **Profile** | `discovery` |
 | **Talks to** | the broker only |
