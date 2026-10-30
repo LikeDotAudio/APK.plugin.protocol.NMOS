@@ -106,6 +106,23 @@ fn say(mqtt_client: &rumqttc::Client, topic: impl Into<String>, payload: impl In
     let _ = mqtt_client.publish(topic.into(), rumqttc::QoS::AtMostOnce, false, payload.into());
 }
 
+/// Say the agent cannot hunt, through the shared `agent_state` vocabulary.
+/// Its retain flag is not honoured: like the rows, the statement is unkept and
+/// lives one RESTATE at a time, so it leaves the bus once the daemon starts.
+fn say_unavailable(mqtt_client: &rumqttc::Client, reason: &str) {
+    match apkaudio_contracts::agent_state::AgentReport::unavailable("nmos", reason)
+        .and_then(|a| a.publications())
+    {
+        Ok(entries) => {
+            for (topic, payload, _retain) in entries {
+                say(mqtt_client, topic, payload);
+            }
+        }
+        // `nmos` is a literal this crate owns — a failure is a bug here.
+        Err(e) => eprintln!("⚠️  [NMOS] agent state not published: {e}"),
+    }
+}
+
 fn device_prefix(host: &str, port: u16) -> String {
     format!("APK.audio/System/Protocols/nmos/Device/{}_{}", sanitize_segment(host), port)
 }
@@ -194,11 +211,22 @@ pub fn run_browse_agent(mqtt_host: &str, mqtt_port: u16) {
         );
     });
 
-    let mdns = match ServiceDaemon::new() {
-        Ok(d) => d,
-        Err(e) => {
-            eprintln!("❌ [NMOS] could not start mDNS daemon: {e}");
-            return;
+    // A host whose mDNS daemon cannot start (no multicast socket yet, port
+    // 5353 refused) is a standing condition, not a crash: returning here hands
+    // the runner a finished hunter, which it exits 70 on, and Docker restarts
+    // the container into the same refusal forever. So the agent stays up, SAYS
+    // it is unavailable — unkept like every row here, so restated on the
+    // RESTATE cadence — and tries the daemon again each time (the same shape as
+    // AVB-Milan's capture loop).
+    let mdns = loop {
+        match ServiceDaemon::new() {
+            Ok(d) => break d,
+            Err(e) => {
+                let reason = format!("could not start mDNS daemon: {e}");
+                eprintln!("🛑 [NMOS] {reason} — saying so, retrying in {}s", RESTATE.as_secs());
+                say_unavailable(&mqtt_client, &reason);
+                std::thread::sleep(RESTATE);
+            }
         }
     };
 
@@ -422,6 +450,18 @@ mod tests {
         assert_eq!(kept.len(), 1, "one publish call besides `say`: {kept:?}");
         assert!(kept[0].contains("true, Vec::new()"), "the kept write must be the clear: {kept:?}");
         assert!(src.contains("rumqttc::QoS::AtMostOnce, false, payload.into()"));
+    }
+
+    /// A daemon that cannot start is restated as unavailable and retried, not
+    /// returned on (LOOSE-plugin-nmos-runbrowseagent-still-prints): a returned
+    /// hunter exits the runner 70 and Docker restart-loops it.
+    #[test]
+    fn mdns_failure_is_retried_not_returned() {
+        let src = include_str!("lib.rs");
+        let start = src.find("pub fn run_browse_agent").unwrap();
+        let agent = &src[start..start + src[start..].find("let (tx, rx)").unwrap()];
+        assert!(!agent.contains("return;"), "the agent must not return before browsing");
+        assert!(agent.contains("say_unavailable("));
     }
 
     /// Lexical sorting would rank v1.9 above v1.10.
