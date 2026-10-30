@@ -21,6 +21,13 @@ services:
       file: "../../../DISCOVERY.Engine/Docker/plugin-base.yml"
       service: plugin-host
     container_name: Plugin-NMOS
+    # WHAT THIS IS, said by the container itself (PLAN-3409.01): DockTor reads
+    # these with docker inspect, so its purpose and endpoint panes keep no list.
+    labels:
+      audio.apk.purpose: "NMOS mDNS browse agent"
+      audio.apk.purpose.what: "apk-nmos on host networking, finding NMOS APIs (registries, nodes) announced over mDNS and publishing them in the nmos bus table."
+      audio.apk.purpose.why: "It answers where the NMOS registries and nodes on the LAN are. Its sibling Plugin-NMOS_CONTROL reads what is registered inside them; `role` separates their rows."
+      audio.apk.endpoint.1: "open http://127.0.0.1:3212/x-nmos/node/v1.3/self NMOS Node API"
     command: ["apk-nmos"]
     profiles: [discovery]
 
