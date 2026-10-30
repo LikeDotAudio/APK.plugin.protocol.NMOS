@@ -4,7 +4,7 @@ Is `PLUGIN.NMOS` deployed? Written by `.apk.scripts/smoke.py` from the module's 
 
 ← [Wiki home](../README.md)
 
-**✅ PASS** — 2/2 checks, since 2026-10-30 12:50 EDT
+**✅ PASS** — 2/2 checks, since 2026-10-30 12:51 EDT
 
 | Check | Target | Result | Detail |
 |---|---|---|---|
@@ -13,4 +13,4 @@ Is `PLUGIN.NMOS` deployed? Written by `.apk.scripts/smoke.py` from the module's 
 
 Re-run: `python3 .apk.scripts/smoke.py PODS/POD.THICK/PLUGINS/PLUGIN.NMOS`
 
-<!-- smoke:sig f1ee3adf4d3c since 2026-10-30 12:50 EDT -->
+<!-- smoke:sig 5d2ff1541a12 since 2026-10-30 12:51 EDT -->
