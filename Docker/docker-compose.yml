@@ -21,9 +21,11 @@ services:
     profiles: [discovery]
 
 volumes:
-  # LOGGER STORAGE — owned by DATABSE:volume:Log STORAGE, which is up first.
+  # LOGGER STORAGE — owned by DATABASE.volume.Log-STORAGE, which binds it onto
+  # Documentation/LOGS and is up first in the pod. NOT `external:` (PLAN-3399.01),
+  # so this file's own `up` also works on a clean host: compose uses the volume
+  # if it exists and makes a plain one if it does not.
   apk-audio-logs:
     name: apk-audio-logs
-    external: true
   mac-lookup-cache:
     name: apk-audio-mac-lookup-cache
