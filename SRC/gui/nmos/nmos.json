@@ -195,13 +195,13 @@
           "last_seen": {
             "type": "_TextInput",
             "label": {
-              "En": "Last seen",
-              "Fr": "Last seen",
-              "De": "Last seen",
-              "Es": "Last seen"
+              "En": "Online since",
+              "Fr": "En ligne depuis",
+              "De": "Online seit",
+              "Es": "En línea desde"
             },
             "value_default": "---",
-            "device_state": "last_seen",
+            "device_state": "online_since",
             "read_only": true,
             "layout": {
               "width": "100%",
