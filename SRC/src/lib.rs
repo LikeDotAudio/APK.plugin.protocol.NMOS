@@ -90,6 +90,26 @@ const DEVICE_KEYS: [&str; 13] = [
 ];
 
 
+/// How often every row still being advertised is said again.
+///
+/// The rows are UNKEPT (QoS 0, retain clear), like AVB, PRINTERS, PTP and
+/// RAVENNA: a discovery row describes what is advertising *now*, and retained it
+/// went on describing a node that had stopped, with nothing to correct it once
+/// this agent was gone. Unkept, a row leaves the bus by not being restated —
+/// which is why this clock is load-bearing. mdns-sd resolves a node again only
+/// when its records change, so without the restate a subscriber that connected
+/// after the first resolution would never see a settled registry at all.
+const RESTATE: Duration = Duration::from_secs(30);
+
+/// Publish one row field, unkept. The only publish in this agent.
+fn say(mqtt_client: &rumqttc::Client, topic: impl Into<String>, payload: impl Into<Vec<u8>>) {
+    let _ = mqtt_client.publish(topic.into(), rumqttc::QoS::AtMostOnce, false, payload.into());
+}
+
+fn device_prefix(host: &str, port: u16) -> String {
+    format!("APK.audio/System/Protocols/nmos/Device/{}_{}", sanitize_segment(host), port)
+}
+
 fn now_secs() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -205,13 +225,12 @@ pub fn run_browse_agent(mqtt_host: &str, mqtt_port: u16) {
 
     // Key: host:port — see the grouping note in the module docs.
     let mut services: HashMap<String, NmosService> = HashMap::new();
-    // What was last published per topic. mDNS re-resolves the same node every
-    // few seconds for as long as it is up, and this agent used to republish all
-    // twelve attributes and print a line every single time — an IS-04 registry
-    // that had not changed since Tuesday, narrating itself. Both presence
-    // fields are constants now, so an unchanged node writes nothing and says
-    // nothing.
+    // What was last said per topic — and so what the restate says again. A
+    // re-resolution that changes nothing writes nothing and prints nothing (an
+    // IS-04 registry that had not changed since Tuesday used to narrate itself);
+    // the restate timer alone keeps an unchanged node on the bus.
     let mut published: HashMap<String, String> = HashMap::new();
+    let mut last_restate = std::time::Instant::now();
     let mut arrived = presence::Presence::new();
     // PRESENCE (PLAN-3318.01), one status document per API endpoint — the same
     // host:port this agent already merges on. Departures-only (`config.ini`):
@@ -220,7 +239,24 @@ pub fn run_browse_agent(mqtt_host: &str, mqtt_port: u16) {
     // instance's full name, so `announced` maps it back to the endpoint.
     let mut announced: HashMap<String, String> = HashMap::new();
 
-    while let Ok((role, event)) = rx.recv() {
+    loop {
+        let next = match rx.recv_timeout(RESTATE) {
+            Ok(next) => Some(next),
+            // Idle — the normal state of a settled bench, and exactly when the
+            // restate matters most.
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => None,
+            // Every browse thread has gone; there is nothing left to hear.
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+        };
+        // Checked on the event path too, so a chatty bench that keeps
+        // `recv_timeout` from expiring still restates on schedule.
+        if last_restate.elapsed() >= RESTATE {
+            last_restate = std::time::Instant::now();
+            for (topic, value) in &published {
+                say(&mqtt_client, topic.clone(), value.clone().into_bytes());
+            }
+        }
+        let Some((role, event)) = next else { continue };
         let info = match event {
             ServiceEvent::ServiceResolved(info) => info,
             ServiceEvent::ServiceRemoved(_, fullname) => {
@@ -228,6 +264,19 @@ pub fn run_browse_agent(mqtt_host: &str, mqtt_port: u16) {
                     if !announced.values().any(|k| *k == key) {
                         println!("   👋 [NMOS] {key} stopped advertising");
                         apk_plugin_runner::presence::gone(&nmos_sighting(&key).device_id());
+                        // UNREACHABLE IS DEAD: the row leaves the bus. Dropped
+                        // from `published` it is not restated; the empty
+                        // retained write also clears a copy an older build of
+                        // this agent left KEPT on the broker.
+                        if let Some(gone) = services.remove(&key) {
+                            let prefix = device_prefix(&gone.host, gone.port);
+                            for k in DEVICE_KEYS {
+                                let topic = format!("{prefix}/{k}");
+                                published.remove(&topic);
+                                let _ = mqtt_client.publish(topic, rumqttc::QoS::AtLeastOnce, true, Vec::new());
+                            }
+                            arrived.forget(&prefix);
+                        }
                     }
                 }
                 continue;
@@ -238,14 +287,7 @@ pub fn run_browse_agent(mqtt_host: &str, mqtt_port: u16) {
         let port = info.get_port();
         let key = format!("{host}:{port}");
         announced.insert(info.get_fullname().to_string(), key.clone());
-        apk_plugin_runner::presence::seen(
-            &nmos_sighting(&key),
-            Some(&format!(
-                "APK.audio/System/Protocols/nmos/Device/{}_{}",
-                sanitize_segment(&host),
-                port
-            )),
-        );
+        apk_plugin_runner::presence::seen(&nmos_sighting(&key), Some(&device_prefix(&host, port)));
 
         let entry = services.entry(key).or_default();
         entry.host = host.clone();
@@ -273,11 +315,7 @@ pub fn run_browse_agent(mqtt_host: &str, mqtt_port: u16) {
 
         let s = entry.clone();
         let get = |k: &str| s.txt.get(k).cloned().unwrap_or_default();
-        let prefix = format!(
-            "APK.audio/System/Protocols/nmos/Device/{}_{}",
-            sanitize_segment(&s.host),
-            s.port
-        );
+        let prefix = device_prefix(&s.host, s.port);
 
         let values = [
             s.instance.clone(),
@@ -314,12 +352,7 @@ pub fn run_browse_agent(mqtt_host: &str, mqtt_port: u16) {
             }
             published.insert(topic.clone(), value.clone());
             wrote += 1;
-            let _ = mqtt_client.publish(
-                topic,
-                rumqttc::QoS::AtLeastOnce,
-                true,
-                value.into_bytes(),
-            );
+            say(&mqtt_client, topic, value.into_bytes());
         }
         // Only when it is news — a node re-resolving is not an event.
         if wrote > 0 {
@@ -376,6 +409,19 @@ mod tests {
         // The System API advertises a single version.
         assert_eq!(summarise_versions("v1.0"), "v1.0");
         assert_eq!(summarise_versions(""), "-");
+    }
+
+    /// Rows are unkept (LOOSE-nmos-run-browse-agent). The only retained write
+    /// in the browse agent is the EMPTY one that clears a departed row, so a
+    /// retain flag of `true` beside a non-empty payload is a regression.
+    #[test]
+    fn nothing_the_browse_agent_says_is_kept() {
+        let src = include_str!("lib.rs");
+        let agent = &src[src.find("pub fn run_browse_agent").unwrap()..src.find("fn nmos_sighting").unwrap()];
+        let kept: Vec<&str> = agent.lines().filter(|l| l.contains(".publish(")).collect();
+        assert_eq!(kept.len(), 1, "one publish call besides `say`: {kept:?}");
+        assert!(kept[0].contains("true, Vec::new()"), "the kept write must be the clear: {kept:?}");
+        assert!(src.contains("rumqttc::QoS::AtMostOnce, false, payload.into()"));
     }
 
     /// Lexical sorting would rank v1.9 above v1.10.
