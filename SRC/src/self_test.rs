@@ -9,11 +9,12 @@
 //!
 //! WHY IT IS A PLAIN FUNCTION AND NOT A BUS LOOP
 //!
-//! Eleven of the twenty-nine crates in this workspace link no MQTT client, so
-//! whatever runs their self test is not them — for the in-process protocol
-//! crates it is the orchestrator. A function over the crate's own machinery is
-//! runnable by that supervisor, by `cargo test`, and by a person at a terminal,
-//! and none of the three needs a broker to be up. PLAN-459.01.
+//! The check does not own the bus: since PLAN-3316.01 the plugin's own
+//! container answers `selftest_run` for this module through apk-plugin-runner
+//! (DISCOVERY.Engine/SRC/RUNNER), which calls the door below. A function over
+//! the crate's own machinery is runnable by that runner, by `cargo test`, and
+//! by a person at a terminal, and none of the three needs a broker to be up.
+//! PLAN-459.01.
 //!
 //! WHAT A CHECK HERE MAY DO
 //!
@@ -34,9 +35,9 @@ pub const MODULE: &str = "nmos";
 /// This crate's `config.ini`, baked in at compile time.
 ///
 /// Read from the binary rather than from disk because a self test must not
-/// depend on the working directory it was launched from — the orchestrator
-/// starts these agents in-process from `/app`, and a check that passed at a
-/// terminal and failed under the supervisor would be worse than no check.
+/// depend on the working directory it was launched from — the plugin image
+/// holds binaries, not this source tree, and a check that passed at a terminal
+/// and failed in the container would be worse than no check.
 const CONFIG_INI: &str = include_str!("../config.ini");
 
 /// Everything this crate can prove about itself at `depth`.
@@ -106,19 +107,19 @@ fn landing_spots() -> Result<(), String> {
 
 /// Does `config.ini` open with `[nmos]`?
 ///
-/// The drift this catches is quiet and total: `orchestrator/src/mqtt.rs` walks
-/// this directory, parses each `config.ini` and publishes it retained under the
-/// section's own name. A section renamed without its crate puts this agent's
+/// The drift this catches is quiet and total: apk-plugin-runner publishes this
+/// crate's compiled-in `config.ini` retained under the section's own name
+/// (`publish_config` in DISCOVERY.Engine/SRC/RUNNER/src/lib.rs). A section renamed without its crate puts this agent's
 /// configuration on the bus under a name nothing reads, and every display goes
 /// on showing the last good copy.
-fn config_declares_module() -> Result<(), String> {{
+fn config_declares_module() -> Result<(), String> {
     let wanted = format!("[{MODULE}]");
-    if CONFIG_INI.lines().any(|line| line.trim() == wanted) {{
+    if CONFIG_INI.lines().any(|line| line.trim() == wanted) {
         Ok(())
-    }} else {{
+    } else {
         Err(format!("config.ini does not declare {wanted}"))
-    }}
-}}
+    }
+}
 
 /// The same self test, across a workspace boundary.
 ///
