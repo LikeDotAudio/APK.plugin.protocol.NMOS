@@ -40,6 +40,9 @@
 //! never reads a configured URL and never writes one; it answers "what is out
 //! there", and the caller decides. Stated here because the caller is in another
 //! crate and a precedence that lives only in a call site is not a rule.
+//! That caller is `apkaudio_nmos_control::registry_agent::discover_query_base`,
+//! the fallback behind both its `query_base` and its AMWA facade
+//! (LOOSE-nmos-unicast); `examples/unicast_discover.rs` is the terminal one.
 //!
 //! # Scope
 //!
