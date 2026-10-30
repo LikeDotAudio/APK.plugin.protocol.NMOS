@@ -2,6 +2,8 @@
 
 NMOS — the mDNS browse agent, one container; and the unicast DNS-SD walk that finds a registry on another subnet.
 
+**Wiki:** [Documentation/README.md](Documentation/README.md) — principles, architecture, delivery.
+
 | | |
 |---|---|
 | **Recipe** | `Docker/docker-compose.yml` — no Dockerfile: it runs a binary from the shared plugin image built by `PODS/POD.THICK/DISCOVERY.Engine/Docker/Dockerfile`, extending `plugin-host` in `DISCOVERY.Engine/Docker/plugin-base.yml` |
@@ -37,13 +39,15 @@ The IS-04 registry walk and the IS-05 client are the sibling
 
 `src/unicast.rs` is the second transport: the same PTR/SRV/TXT walk asked of a
 **named DNS resolver** for `_nmos-query._tcp.<domain>` (the AMWA `IS-04-04
-test_01` case). It builds a Query API URL and opens no HTTP. Today it is reached
-only from `examples/unicast_discover.rs`, not from the running agent.
+test_01` case). It builds a Query API URL and opens no HTTP. Its caller is
+`APK:plugin:NMOS_CONTROL` (`registry_agent::discover_query_base`, the fallback
+when no registry is named) and `examples/unicast_discover.rs`; the mDNS agent
+here does not run it.
 
 ## Topics
 
 ```
-APK.audio/System/Protocols/nmos/Device/{host}_{port}/{key}   ← retained, QoS 1, written on change
+APK.audio/System/Protocols/nmos/Device/{host}_{port}/{key}   ← NOT retained, QoS 0: said on change, restated every 30 s
   key ∈ service role api_versions api_proto api_auth priority host port
         addresses mac vendor last_online online_since
 ```
@@ -67,7 +71,7 @@ TTL). The runner also publishes the retained config at
 
 ```sh
 # from PODS/POD.THICK/DISCOVERY.Engine/SRC
-cargo test -p apkaudio-nmos                                  # 26 tests (2026-10-30)
+cargo test -p apkaudio-nmos                                  # 27 tests (2026-10-30)
 cargo run -p apkaudio-nmos --example unicast_discover        # every search domain in /etc/resolv.conf
 cargo run -p apkaudio-nmos --example unicast_discover -- 127.0.0.1:5100 testsuite.nmos.tv
 
@@ -97,10 +101,11 @@ COMPOSE_PROFILES=discovery docker compose -f PODS/POD.THICK/PLUGINS/PLUGIN.NMOS/
   `apkaudio_contracts::topics::sanitize_segment`; presence through
   `apk_plugin_runner::presence`.
 
-Against the doctrine: the device rows are **retained and never cleared** when a
-node stops advertising — only the presence document goes inactive. A reader
-must take liveness from presence, not from the row being there. Its siblings
-PRINTERS, PTP and RAVENNA publish with the retain flag clear instead.
+- **Unreachable is dead.** Device rows are unkept and restated every 30 s, as
+  AVB, PRINTERS, PTP and RAVENNA do; a node that stops advertising drops out of
+  the restate, and an empty retained write clears any copy an older build left
+  kept (`say`, `RESTATE`, `run_browse_agent`; test
+  `nothing_the_browse_agent_says_is_kept`).
 
 ---
 
