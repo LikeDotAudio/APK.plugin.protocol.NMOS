@@ -5,6 +5,7 @@
     "tree_names_the_display": "'tree' names the frame tree these consoles land in. Omitting it means the Instruments tab, which is the bench; every family here names 7_Device_Consoles because a discovered device is not bench equipment."
   },
   "nmos": {
+    "device_depth": 1,
     "tab": "5_NMOS",
     "tree": "7_Device_Consoles"
   }

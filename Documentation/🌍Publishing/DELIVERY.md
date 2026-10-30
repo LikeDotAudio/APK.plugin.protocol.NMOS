@@ -25,7 +25,7 @@ runner answers `outgoing/selftest_run` for module `nmos`. The AMWA suite
 `Docker/docker-compose.yml` extends `plugin-host` (host networking — mDNS does not cross a bridge)
 and is `include:`d into compose project `apk-audio`; `Plugin-NMOS` starts on nodes whose roles
 include `discovery`. DockTor's `PODS/POD.manager/MANAGER.Docktor/K8/up-stack.sh` rebuilds one stack.
-Rows land on the broker; `SRC/gui/` panels are served by the web UI. No live URL of its own.
+Rows land on the broker; each device presents its own `SRC/gui/nmos` panel, retained at `APK.audio/System/Gui/Panels/nmos-<device>` (`panels = [nmos]`). No live URL of its own.
 
 ## Not automated
 

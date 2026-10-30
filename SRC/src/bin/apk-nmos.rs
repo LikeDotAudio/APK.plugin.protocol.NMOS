@@ -7,4 +7,7 @@
 //! container now, `apk-nmos-control` in APK:plugin:NMOS_CONTROL; the two meet
 //! in the bus table, where `role` separates their rows, and nowhere else.
 
-apk_plugin_runner::main!(token = "nmos", lib = apkaudio_nmos, run = [run_browse_agent]);
+// `panels = [nmos]`: every NMOS registry/node this plugin finds presents its
+// own panel, retained at `APK.audio/System/Gui/Panels/nmos-<device>`; the
+// manifest's `device_depth: 1` because the tree is `Device/<device>/<field>`.
+apk_plugin_runner::main!(token = "nmos", lib = apkaudio_nmos, run = [run_browse_agent], panels = [nmos]);
