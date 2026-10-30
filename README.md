@@ -55,7 +55,9 @@ APK.audio/System/Protocols/nmos/Device/{host}_{port}/{key}   ← NOT retained, Q
 Presence is the runner's: `presence_protocols = nmos`,
 `presence_inactive_after_s = 0` (departures only — mdns-sd resolves a steady
 node again only when its record changes, and removes it on a goodbye or lapsed
-TTL). The runner also publishes the retained config at
+TTL). Beside each row the runner keeps `presence_topic` and the sighting's
+identity (`name`, `device_class`, …) RETAINED; a departure retracts them with
+the row (`presence::unlink`), so `Device/+` never lists a leaf-only ghost. The runner also publishes the retained config at
 `APK.audio/System/Protocols/nmos/config`, `incoming/state` / `telemetry` /
 `api`, and the self test (`src/self_test.rs`).
 

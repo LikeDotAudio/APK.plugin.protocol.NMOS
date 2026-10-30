@@ -304,6 +304,13 @@ pub fn run_browse_agent(mqtt_host: &str, mqtt_port: u16) {
                                 let _ = mqtt_client.publish(topic, rumqttc::QoS::AtLeastOnce, true, Vec::new());
                             }
                             arrived.forget(&prefix);
+                            // The runner's retained leaves under the same
+                            // prefix — `presence_topic` and the identity
+                            // beside it (name, device_class…) — go with the
+                            // row; clearing DEVICE_KEYS alone left them as a
+                            // leaf-only ghost under `Device/+`
+                            // (LOOSE-plugin-nmos-when-a-node).
+                            apk_plugin_runner::presence::unlink(&prefix);
                         }
                     }
                 }
