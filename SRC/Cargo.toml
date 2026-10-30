@@ -1,18 +1,16 @@
 [package]
-workspace = "../../../DISCOVERY.Engine/SRC"
 name = "apkaudio-nmos"
 version = "0.1.0"
-edition.workspace = true
-
+edition = "2024"
 [dependencies]
 # The container entry point in src/bin/apk-nmos.rs (PLAN-3316.01). NMOS_CONTROL's
 # IS-04 registry agent used to run beside it in one `nmos` container (audit
 # §10.2); it is its own stack and container now (`apk-nmos-control`), so this
 # crate no longer depends on it.
-apk-plugin-runner = { path = "../../../DISCOVERY.Engine/SRC/RUNNER" }
-apkaudio-contracts = { path = "../../../NODE.BareMetal/SRC/contracts/rust" }
+apk-plugin-runner = { git = "https://github.com/LikeDotAudio/APK.plugin.SDK", tag = "sdk-v0.1" }
+apkaudio-contracts = { git = "https://github.com/LikeDotAudio/APK.plugin.SDK", tag = "sdk-v0.1" }
 mdns-sd = "0.20"
 rumqttc = "0.24"
 
 # The MAC a SLAAC address was built from, and who IEEE gave that block to.
-apkaudio-maclookup = { path = "../../../LIBRARY/LIB.MAC_LOOKUP/SRC" }
+apkaudio-maclookup = { git = "https://github.com/LikeDotAudio/APK.plugin.protocol.MAC_LOOKUP", rev = "7ba39dd001fea80828ac310280fc3b4b5c180cb3" }
