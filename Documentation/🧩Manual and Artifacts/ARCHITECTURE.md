@@ -9,7 +9,7 @@ agent run as container `Plugin-NMOS`, and a unicast DNS-SD library used by the N
 
 ```sh
 cd PODS/POD.THICK/DISCOVERY.Engine/SRC
-cargo test -p apkaudio-nmos                                           # 27 tests
+cargo test -p apkaudio-nmos                                           # 31 tests
 cargo run -p apkaudio-nmos --example unicast_discover                 # resolv.conf search domains
 cargo run -p apkaudio-nmos --example unicast_discover -- 127.0.0.1:5100 testsuite.nmos.tv
 COMPOSE_PROFILES=discovery docker compose -f PODS/POD.THICK/PLUGINS/PLUGIN.NMOS/Docker/docker-compose.yml up -d
@@ -32,13 +32,23 @@ mosquitto_sub -t 'APK.audio/System/Protocols/nmos/Device/#' -v
 ## mDNS browse flow (`run_browse_agent`)
 
 1. One `mdns-sd` browse per service type in `NMOS_SERVICES`; every event goes into one channel.
-2. `ServiceResolved` → merge into `services[host:port]` (role, instance, IPv4 addresses, TXT) →
-   `presence::seen` → build 13 fields (`service role api_versions api_proto api_auth priority host
-   port addresses mac vendor last_online online_since`) → `say` the changed ones under
-   `APK.audio/System/Protocols/nmos/Device/{host}_{port}/`.
-3. Every 30 s (`RESTATE`), every field still held is said again.
-4. `ServiceRemoved` for the last instance at an endpoint → `presence::gone`, forget the row, clear
-   its topics.
+0. The bus session is the runner's: `Session::new("nmos", "browse").spawn_drained()` (unique client
+   id per node and process, credentials, backoff). Every publish is `apk_plugin_runner::unkept`'s
+   `say` / `restate` / `forget` — the QoS/retain policy is not decided in this crate.
+1. `until_started(ServiceDaemon::new, …)` — a daemon that cannot start is said `unavailable` and
+   retried every `restate_s`, never returned on.
+2. `ServiceResolved` → `NmosService::absorb` into `services[host:port]` (role, instance, IPv4
+   addresses, TXT) → `presence::seen` → `NmosService::row` builds the 13 leaves (`service role
+   api_versions api_proto api_auth priority host port addresses mac vendor last_online
+   online_since`, never empty) → `say` the changed ones under
+   `APK.audio/System/Protocols/nmos/Device/{host}_{port}/` (`topics::protocols`).
+3. Every `restate_s` (config.ini, 30 s), every field still held is said again (`unkept::restate`).
+4. `ServiceRemoved` for the last instance at an endpoint → `presence::gone`, forget the row,
+   `unkept::forget` each of `row_topics(prefix)`.
+
+The row contract is held by tests on the builder itself, not on the source text:
+`the_row_is_exactly_the_published_leaves` (fixture registry → exact topic set and values) and
+`a_departure_clears_exactly_the_row`.
 
 `mac` / `vendor` come from `LIB.MAC_LOOKUP` when an address is SLAAC IPv6.
 

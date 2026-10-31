@@ -16,7 +16,7 @@ this crate by path).
 
 ## Tested
 
-By hand: `cargo test -p apkaudio-nmos` (27 tests; the unicast ones use a loopback DNS socket). The
+By hand: `cargo test -p apkaudio-nmos` (31 tests; the unicast ones use a loopback DNS socket). The
 runner answers `outgoing/selftest_run` for module `nmos`. The AMWA suite
 (`PODS/POD.protocols/PROTOCOL.discovery.NMOS`) grades the controller, not this agent.
 
@@ -29,5 +29,17 @@ Rows land on the broker; each device presents its own `SRC/gui/nmos` panel, reta
 
 ## Not automated
 
-* No CI builds or tests it.
+* CI: `.github/workflows/ci.yml` calls the SDK's `plugin-ci.yml@sdk-v0.5` (pinned to the same tag as the code).
 * No registry: the image is built on each node.
+
+## Delivered from the 2026-10-30 audit
+
+Part of the shared plugin image (`apk-plugins:local`, container `Plugin-NMOS`).
+
+- **Row contract test replaces the source greps** — `nothing_the_browse_agent_says_is_kept` and `mdns_failure_is_retried_not_returned` no longer slice `include_str!("lib.rs")`. The row is built by `NmosService::absorb` + `NmosService::row` (pure), and `the_row_is_exactly_the_published_leaves` drives a fixture registry (two names, loopback/link-local dropped, TXT re-advertised empty) and asserts the exact 13 topics and values under `Device/nmos-cpp_local_3210/`; `a_departure_clears_exactly_the_row` holds that no value is empty and the departure clears exactly those topics; the daemon retry is `until_started`, tested with two driven refusals. `cargo test -p apkaudio-nmos` 31 passed.
+- **Device topics by the contract** — already `topics::protocols("nmos", ["Device", …])` in `device_prefix()` (c90644f); every row leaf is now built from that prefix by `NmosService::row` / `row_topics`. Verified by `the_device_prefix_is_built_by_the_contract` and the row test (each topic parses as `ParsedTopic::Protocols`).
+- **Bus client from the runner** — the hand-built `rumqttc::MqttOptions("apkaudio-nmos")` + credentials + drain thread is `Session::new("nmos", "browse").capacity(32).spawn_drained()` (client id unique per node and process — the fixed id kicked a second node's agent off a shared broker); the local `say` and the raw retained clear are `apk_plugin_runner::unkept::{say, restate, forget}`, agent state via `publications_of`. Workspace build clean (no warnings). Standalone build needs the next SDK tag (publishing tags = needs owner).
+- **Identity is host:port** — Kept by design: the key is the mDNS host name + port the endpoint advertises (not an IP); the IS-04 `self` id needs an HTTP GET this discovery-only crate must not make (NMOS_CONTROL keys on the IS-04 device UUID), and a SLAAC-recovered MAC is absent on privacy hosts and could re-key a live row. Written in PRINCIPLES.md.
+- **Cross-repo build files** — Kept by design: `extends: …/DISCOVERY.Engine/Docker/plugin-base.yml` and the `members/` symlink are the house plugin pattern (PRINCIPLES.md "Where the code bends a rule"). The compose's copied volume block is now `include: …/plugin-volumes.yml`; `docker compose config` is byte-identical before/after. Standalone CI of the include needs the next SDK tag.
+- **README Configuration drift** — already fixed: README says there is no `domain` key, matching `SRC/config.ini`.
+- **CI pinned to the SDK tag** — `ci.yml` uses `plugin-ci.yml@sdk-v0.5` (was `@main`).

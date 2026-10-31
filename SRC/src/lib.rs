@@ -51,6 +51,8 @@ use std::collections::{BTreeSet, HashMap};
 use std::time::Duration;
 use apkaudio_contracts::presence;
 use apkaudio_contracts::topics::{self, sanitize_segment};
+use apk_plugin_runner::session::Session;
+use apk_plugin_runner::unkept::{forget, publications_of, say};
 
 /// Implementation state. Discovery is real; the IS-04/IS-05 HTTP APIs are not
 /// implemented, so this is deliberately not the word "complete".
@@ -144,25 +146,36 @@ impl Settings {
 /// runner's watchdog (APK_PLUGIN_STALL_SECS, 120 s by default).
 const TICK_AT_LEAST: Duration = Duration::from_secs(30);
 
-/// Publish one row field, unkept. The only publish in this agent.
-fn say(mqtt_client: &rumqttc::Client, topic: impl Into<String>, payload: impl Into<Vec<u8>>) {
-    let _ = mqtt_client.publish(topic.into(), rumqttc::QoS::AtMostOnce, false, payload.into());
+/// Say the agent cannot hunt, through the shared `agent_state` vocabulary.
+/// Its retain flag is not honoured: like the rows, the statement is unkept
+/// (`unkept::say`) and lives one restate at a time, so it leaves the bus once
+/// the daemon starts.
+fn say_unavailable(mqtt_client: &rumqttc::Client, reason: &str) {
+    let account = apkaudio_contracts::agent_state::AgentReport::unavailable(self_test::MODULE, reason);
+    // `publications_of` logs and yields nothing on a bad token — `nmos` is a
+    // literal this crate owns, so that would be a bug here.
+    for (topic, payload) in publications_of("NMOS", account) {
+        say(mqtt_client, topic, payload);
+    }
 }
 
-/// Say the agent cannot hunt, through the shared `agent_state` vocabulary.
-/// Its retain flag is not honoured: like the rows, the statement is unkept and
-/// lives one restate at a time, so it leaves the bus once the daemon starts.
-fn say_unavailable(mqtt_client: &rumqttc::Client, reason: &str) {
-    match apkaudio_contracts::agent_state::AgentReport::unavailable("nmos", reason)
-        .and_then(|a| a.publications())
-    {
-        Ok(entries) => {
-            for (topic, payload, _retain) in entries {
-                say(mqtt_client, topic, payload);
-            }
+/// Start the mDNS daemon, or say why not and try again, for ever.
+///
+/// A host whose mDNS daemon cannot start (no multicast socket yet, port 5353
+/// refused) is a standing condition, not a crash: returning hands the runner a
+/// finished hunter, which it exits 70 on, and Docker restarts the container
+/// into the same refusal forever. So each refusal goes to `unavailable` (which
+/// says it on the bus and waits one restate) and the start is tried again.
+/// Generic over the daemon so a test can drive the refusals.
+fn until_started<D, E: std::fmt::Display>(
+    mut start: impl FnMut() -> Result<D, E>,
+    mut unavailable: impl FnMut(&str),
+) -> D {
+    loop {
+        match start() {
+            Ok(daemon) => return daemon,
+            Err(e) => unavailable(&format!("could not start mDNS daemon: {e}")),
         }
-        // `nmos` is a literal this crate owns — a failure is a bug here.
-        Err(e) => eprintln!("⚠️  [NMOS] agent state not published: {e}"),
     }
 }
 
@@ -242,23 +255,85 @@ struct NmosService {
     port: u16,
 }
 
+impl NmosService {
+    /// Fold one resolution of `fullname` (`role`, on `host:port`) into the row.
+    /// Addresses and TXT keys accumulate: a node that resolves on two
+    /// interfaces, or advertises a key once, keeps both.
+    fn absorb(
+        &mut self,
+        role: &str,
+        host: &str,
+        port: u16,
+        fullname: &str,
+        addresses: impl IntoIterator<Item = String>,
+        txt: impl IntoIterator<Item = (String, String)>,
+    ) {
+        self.host = host.to_string();
+        self.port = port;
+        self.role = role.to_string();
+        self.instance = fullname
+            .split_once("._")
+            .map(|(s, _)| s.to_string())
+            .unwrap_or_else(|| fullname.to_string());
+        for s in addresses {
+            // nmos-cpp advertises every interface including loopback and IPv6
+            // link-local; neither helps anyone reach the API.
+            if s.contains('.') && !s.starts_with("127.") {
+                self.addresses.insert(s);
+            }
+        }
+        for (key, value) in txt {
+            if !value.is_empty() {
+                self.txt.insert(key.to_ascii_lowercase(), value);
+            }
+        }
+    }
+
+    fn get(&self, key: &str) -> String {
+        self.txt.get(key).cloned().unwrap_or_default()
+    }
+
+    /// The row exactly as a subscriber sees it: one `(topic, value)` per
+    /// [`DEVICE_KEYS`] leaf under `Device/{host}_{port}/`. `mac` / `vendor`
+    /// are what LIB.MAC_LOOKUP recovered from the addresses (`-` when not);
+    /// `since` is the presence clock's `online_since`. Every value is non-empty
+    /// — an empty unkept payload would read as nothing, and an empty RETAINED
+    /// one is MQTT's delete.
+    fn row(&self, mac: &str, vendor: &str, since: u64) -> Vec<(String, String)> {
+        let or_dash = |v: String| if v.is_empty() { "-".to_string() } else { v };
+        let values = [
+            or_dash(self.instance.clone()),
+            or_dash(self.role.clone()),
+            summarise_versions(&self.get("api_ver")),
+            or_dash(self.get("api_proto")),
+            auth_label(self.txt.get("api_auth")).to_string(),
+            or_dash(self.get("pri")),
+            or_dash(self.host.clone()),
+            self.port.to_string(),
+            or_dash(self.addresses.iter().cloned().collect::<Vec<_>>().join(", ")),
+            or_dash(mac.to_string()),
+            or_dash(vendor.to_string()),
+            presence::ONLINE_NOW.to_string(),
+            since.to_string(),
+        ];
+        let prefix = device_prefix(&self.host, self.port);
+        DEVICE_KEYS.iter().zip(values).map(|(k, v)| (format!("{prefix}/{k}"), v)).collect()
+    }
+}
+
+/// The topics a departed endpoint's row occupied — every one is cleared.
+fn row_topics(prefix: &str) -> Vec<String> {
+    DEVICE_KEYS.iter().map(|k| format!("{prefix}/{k}")).collect()
+}
+
 /// Blocking browse loop — run on a dedicated thread.
 pub fn run_browse_agent(mqtt_host: &str, mqtt_port: u16) {
-    let mut opts = rumqttc::MqttOptions::new("apkaudio-nmos", mqtt_host, mqtt_port);
-    opts.set_keep_alive(Duration::from_secs(30));
-    if let Some((username, password)) = apkaudio_contracts::broker_auth::credentials() {
-        opts.set_credentials(username, password);
-    }
-    let (mqtt_client, mut connection) = rumqttc::Client::new(opts, 32);
+    // The session — client id unique per node and process, credentials,
+    // keep-alive and the backoff-paced drain — is the runner's (audit
+    // 2026-10-30): this crate decides only WHAT it says, through
+    // `unkept::say` / `unkept::forget`.
+    let mqtt_client = Session::new(self_test::MODULE, "browse").to(mqtt_host, mqtt_port).capacity(32).spawn_drained();
     let vendors = apkaudio_maclookup::MacVendors::start();
-    std::thread::spawn(move || {
-        apkaudio_contracts::broker_backoff::drain(
-            "nmos",
-            connection.iter(),
-            |e| matches!(e, rumqttc::ConnectionError::ConnectionRefused(_)),
-            |_| {},
-        );
-    });
 
     // A compiled-in config.ini without a usable `restate_s` is a build defect.
     // Said on the bus as `unavailable` and held, not returned on: a returned
@@ -272,24 +347,13 @@ pub fn run_browse_agent(mqtt_host: &str, mqtt_port: u16) {
         },
     };
 
-    // A host whose mDNS daemon cannot start (no multicast socket yet, port
-    // 5353 refused) is a standing condition, not a crash: returning here hands
-    // the runner a finished hunter, which it exits 70 on, and Docker restarts
-    // the container into the same refusal forever. So the agent stays up, SAYS
-    // it is unavailable — unkept like every row here, so restated on the
-    // restate cadence — and tries the daemon again each time (the same shape as
-    // AVB-Milan's capture loop).
-    let mdns = loop {
-        match ServiceDaemon::new() {
-            Ok(d) => break d,
-            Err(e) => {
-                let reason = format!("could not start mDNS daemon: {e}");
-                eprintln!("🛑 [NMOS] {reason} — saying so, retrying in {}s", restate.as_secs());
-                say_unavailable(&mqtt_client, &reason);
-                std::thread::sleep(restate);
-            }
-        }
-    };
+    // Said unavailable (unkept, so restated on the restate cadence) and
+    // retried — never returned on; see `until_started`.
+    let mdns = until_started(ServiceDaemon::new, |reason| {
+        eprintln!("🛑 [NMOS] {reason} — saying so, retrying in {}s", restate.as_secs());
+        say_unavailable(&mqtt_client, reason);
+        std::thread::sleep(restate);
+    });
 
     let (tx, rx) = std::sync::mpsc::channel::<(String, ServiceEvent)>();
     for (stype, role) in NMOS_SERVICES {
@@ -345,9 +409,7 @@ pub fn run_browse_agent(mqtt_host: &str, mqtt_port: u16) {
         // `recv_timeout` from expiring still restates on schedule.
         if last_restate.elapsed() >= restate {
             last_restate = std::time::Instant::now();
-            for (topic, value) in &published {
-                say(&mqtt_client, topic.clone(), value.clone().into_bytes());
-            }
+            apk_plugin_runner::unkept::restate(&mqtt_client, &published);
         }
         let Some((role, event)) = next else { continue };
         let info = match event {
@@ -363,10 +425,9 @@ pub fn run_browse_agent(mqtt_host: &str, mqtt_port: u16) {
                         // this agent left KEPT on the broker.
                         if let Some(gone) = services.remove(&key) {
                             let prefix = device_prefix(&gone.host, gone.port);
-                            for k in DEVICE_KEYS {
-                                let topic = format!("{prefix}/{k}");
+                            for topic in row_topics(&prefix) {
                                 published.remove(&topic);
-                                let _ = mqtt_client.publish(topic, rumqttc::QoS::AtLeastOnce, true, Vec::new());
+                                forget(&mqtt_client, topic);
                             }
                             arrived.forget(&prefix);
                             // The runner's retained leaves under the same
@@ -390,63 +451,23 @@ pub fn run_browse_agent(mqtt_host: &str, mqtt_port: u16) {
         apk_plugin_runner::presence::seen(&nmos_sighting(&key), Some(&device_prefix(&host, port)));
 
         let entry = services.entry(key).or_default();
-        entry.host = host.clone();
-        entry.port = port;
-        entry.role = role.clone();
-        let fullname = info.get_fullname().to_string();
-        entry.instance = fullname
-            .split_once("._")
-            .map(|(s, _)| s.to_string())
-            .unwrap_or(fullname);
-        for a in info.get_addresses() {
-            let s = a.to_string();
-            // nmos-cpp advertises every interface including loopback and IPv6
-            // link-local; neither helps anyone reach the API.
-            if s.contains('.') && !s.starts_with("127.") {
-                entry.addresses.insert(s);
-            }
-        }
-        for prop in info.get_properties().iter() {
-            let v = prop.val_str().to_string();
-            if !v.is_empty() {
-                entry.txt.insert(prop.key().to_ascii_lowercase(), v);
-            }
-        }
-
+        entry.absorb(
+            &role,
+            &host,
+            port,
+            info.get_fullname(),
+            info.get_addresses().iter().map(|a| a.to_string()),
+            info.get_properties().iter().map(|p| (p.key().to_string(), p.val_str().to_string())),
+        );
         let s = entry.clone();
-        let get = |k: &str| s.txt.get(k).cloned().unwrap_or_default();
         let prefix = device_prefix(&s.host, s.port);
-
-        let values = [
-            s.instance.clone(),
-            s.role.clone(),
-            summarise_versions(&get("api_ver")),
-            { let p = get("api_proto"); if p.is_empty() { "-".into() } else { p } },
-            auth_label(s.txt.get("api_auth")).to_string(),
-            { let p = get("pri"); if p.is_empty() { "-".into() } else { p } },
-            s.host.clone(),
-            s.port.to_string(),
-            s.addresses.iter().cloned().collect::<Vec<_>>().join(", "),
-            {
-                let addrs: Vec<String> = s.addresses.iter().cloned().collect();
-                vendors
-                    .mac_of_any(addrs.iter().map(String::as_str))
-                    .map(|m| m.to_string())
-                    .unwrap_or_else(|| "-".to_string())
-            },
-            {
-                let addrs: Vec<String> = s.addresses.iter().cloned().collect();
-                vendors
-                    .vendor_of_any(addrs.iter().map(String::as_str))
-                    .unwrap_or_else(|| "-".to_string())
-            },
-            presence::ONLINE_NOW.to_string(),
-            arrived.since(&prefix, now_secs()).to_string(),
-        ];
+        let addrs: Vec<String> = s.addresses.iter().cloned().collect();
+        let mac = vendors.mac_of_any(addrs.iter().map(String::as_str)).map(|m| m.to_string()).unwrap_or_default();
+        let vendor = vendors.vendor_of_any(addrs.iter().map(String::as_str)).unwrap_or_default();
+        let row = s.row(&mac, &vendor, arrived.since(&prefix, now_secs()));
 
         let mut wrote = 0usize;
-        for (k, value) in DEVICE_KEYS.iter().zip(values) {
-            let topic = format!("{prefix}/{k}");
+        for (topic, value) in row {
             if published.get(&topic).is_some_and(|p| *p == value) {
                 continue;
             }
@@ -461,7 +482,7 @@ pub fn run_browse_agent(mqtt_host: &str, mqtt_port: u16) {
                 s.role,
                 s.host,
                 s.port,
-                summarise_versions(&get("api_ver")),
+                summarise_versions(&s.get("api_ver")),
                 auth_label(s.txt.get("api_auth"))
             );
         }
@@ -511,29 +532,91 @@ mod tests {
         assert_eq!(summarise_versions(""), "-");
     }
 
-    /// Rows are unkept (LOOSE-nmos-run-browse-agent). The only retained write
-    /// in the browse agent is the EMPTY one that clears a departed row, so a
-    /// retain flag of `true` beside a non-empty payload is a regression.
-    #[test]
-    fn nothing_the_browse_agent_says_is_kept() {
-        let src = include_str!("lib.rs");
-        let agent = &src[src.find("pub fn run_browse_agent").unwrap()..src.find("fn nmos_sighting").unwrap()];
-        let kept: Vec<&str> = agent.lines().filter(|l| l.contains(".publish(")).collect();
-        assert_eq!(kept.len(), 1, "one publish call besides `say`: {kept:?}");
-        assert!(kept[0].contains("true, Vec::new()"), "the kept write must be the clear: {kept:?}");
-        assert!(src.contains("rumqttc::QoS::AtMostOnce, false, payload.into()"));
+    /// A bench registry as it resolves: nmos-cpp's Registration API on two
+    /// interfaces (loopback and link-local dropped), advertised under both
+    /// service names.
+    fn fixture() -> NmosService {
+        let mut s = NmosService::default();
+        let txt = |pairs: &[(&str, &str)]| pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect::<Vec<_>>();
+        s.absorb(
+            "Registration",
+            "nmos-cpp.local",
+            3210,
+            "nmos-cpp_registry._nmos-register._tcp.local.",
+            ["10.0.0.5".to_string(), "127.0.0.1".to_string(), "fe80::1".to_string()],
+            txt(&[("API_VER", "v1.2,v1.3"), ("api_proto", "http"), ("api_auth", "false"), ("pri", "100")]),
+        );
+        s.absorb(
+            "Registration",
+            "nmos-cpp.local",
+            3210,
+            "nmos-cpp_registry._nmos-registration._tcp.local.",
+            ["192.168.1.5".to_string()],
+            txt(&[("pri", ""), ("api_auth", "false")]),
+        );
+        s
     }
 
-    /// A daemon that cannot start is restated as unavailable and retried, not
+    /// THE ROW CONTRACT (audit 2026-10-30, replacing two `include_str!` source
+    /// greps): exactly the DEVICE_KEYS leaves under `Device/{host}_{port}/`,
+    /// with the values a subscriber (Device Console, NMOS panel) reads.
+    #[test]
+    fn the_row_is_exactly_the_published_leaves() {
+        let row = fixture().row("AA:BB:CC:DD:EE:FF", "", 1_700_000_000);
+        let p = "APK.audio/System/Protocols/nmos/Device/nmos-cpp_local_3210";
+        let expected: Vec<(String, String)> = [
+            ("service", "nmos-cpp_registry"),
+            ("role", "Registration"),
+            ("api_versions", "v1.3 (of v1.2, v1.3)"),
+            ("api_proto", "http"),
+            ("api_auth", "NONE"),
+            ("priority", "100"), // an empty re-advertisement does not erase it
+            ("host", "nmos-cpp.local"),
+            ("port", "3210"),
+            ("addresses", "10.0.0.5, 192.168.1.5"),
+            ("mac", "AA:BB:CC:DD:EE:FF"),
+            ("vendor", "-"),
+            ("last_online", "-1"),
+            ("online_since", "1700000000"),
+        ]
+        .iter()
+        .map(|(k, v)| (format!("{p}/{k}"), v.to_string()))
+        .collect();
+        assert_eq!(row, expected);
+        assert_eq!(presence::ONLINE_NOW.to_string(), "-1");
+        for (topic, _) in &row {
+            assert!(matches!(topics::parse(topic), topics::ParsedTopic::Protocols { .. }), "{topic}");
+        }
+    }
+
+    /// Unkept means nothing a subscriber reads is ever EMPTY (an empty payload
+    /// is the delete), and a departure clears exactly the topics the row held
+    /// — no fewer (a ghost leaf) and no more (someone else's leaf).
+    #[test]
+    fn a_departure_clears_exactly_the_row() {
+        let s = fixture();
+        let row = s.row("", "", 0);
+        assert!(row.iter().all(|(_, v)| !v.is_empty()), "{row:?}");
+        let said: Vec<String> = row.into_iter().map(|(t, _)| t).collect();
+        assert_eq!(said, row_topics(&device_prefix(&s.host, s.port)));
+    }
+
+    /// A daemon that cannot start is said unavailable and retried, not
     /// returned on (LOOSE-plugin-nmos-runbrowseagent-still-prints): a returned
     /// hunter exits the runner 70 and Docker restart-loops it.
     #[test]
     fn mdns_failure_is_retried_not_returned() {
-        let src = include_str!("lib.rs");
-        let start = src.find("pub fn run_browse_agent").unwrap();
-        let agent = &src[start..start + src[start..].find("let (tx, rx)").unwrap()];
-        assert!(!agent.contains("return;"), "the agent must not return before browsing");
-        assert!(agent.contains("say_unavailable("));
+        let mut attempts = 0;
+        let mut said = Vec::new();
+        let daemon = until_started(
+            || {
+                attempts += 1;
+                if attempts < 3 { Err("port 5353 refused") } else { Ok("daemon") }
+            },
+            |reason| said.push(reason.to_string()),
+        );
+        assert_eq!(daemon, "daemon");
+        assert_eq!(said, vec!["could not start mDNS daemon: port 5353 refused"; 2]);
     }
 
     /// The restate interval is config, not source (RP-14): the compiled-in

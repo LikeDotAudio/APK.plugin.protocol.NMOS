@@ -10,11 +10,12 @@ rules live in the root: [Refusal over fabrication](../../../../../../Documentati
 |---|---|
 | **Discovery only, and the boundary is a contract.** This crate finds; `apkaudio-nmos-control` calls APIs. The unicast DNS walk lives here because it is discovery, and it builds a URL without fetching it. | crate header, [`lib.rs:35-48`](../../SRC/src/lib.rs); [`unicast.rs`](../../SRC/src/unicast.rs) header, "Scope". |
 | **Group by what is really one thing.** Rows key on `host:port`: two Node APIs on one host stay two rows; `_nmos-register` and `_nmos-registration` on one port merge. | `NMOS_SERVICES`, [`lib.rs:63`](../../SRC/src/lib.rs); "Grouping" in the header. |
+| **A row is an advertised API endpoint, so its key is the endpoint's own name (kept by design, audit 2026-10-30).** The house rule is identity = serial/MAC, never IP. The key here is not an IP: it is the mDNS host name the node claims plus the port, which is what DNS-SD itself names a service by. The two stable identities the rule prefers are not available to a discovery-only crate: the IS-04 `self` id needs an HTTP GET of the Node API, which this crate's contract forbids (that is NMOS_CONTROL's job, and its rows key on the IS-04 device UUID), and the MAC is recovered only from a SLAAC address — absent on privacy-addressed hosts, and liable to appear on a later resolution, which would re-key a live row. So `mac` is a field, not the key. | `device_prefix`, `NmosService::row` in [`lib.rs`](../../SRC/src/lib.rs). |
 | **Refusal over fabrication.** An absent `api_auth` is `?`, never `false`; a privacy-addressed host gets `-` for MAC, not a guess; an unadvertised registry `pri` is "do not use", not 0. | `auth_label`, `lib.rs:125`; `ServiceInstance::priority` and `PRIORITY_DO_NOT_USE`, [`unicast.rs:112`](../../SRC/src/unicast.rs). |
-| **Unreachable is dead.** Device rows are unkept (QoS 0, retain clear) and restated every `restate_s` (config.ini, 30 s); a node that stops advertising leaves the restate, and its rows are cleared. | `say`, `lib.rs:148`; `Settings::from_ini`, `lib.rs:99`; `ServiceRemoved` arm, `lib.rs:355`; test `nothing_the_browse_agent_says_is_kept`, `lib.rs:518`. |
+| **Unreachable is dead.** Device rows are unkept (QoS 0, retain clear) and restated every `restate_s` (config.ini, 30 s); a node that stops advertising leaves the restate, and its rows are cleared. | `apk_plugin_runner::unkept::{say, restate, forget}`; `Settings::from_ini`; `ServiceRemoved` arm in `run_browse_agent`; tests `the_row_is_exactly_the_published_leaves`, `a_departure_clears_exactly_the_row`. |
 | **A supplied URL wins over a resolved one.** Unicast discovery is a fallback, never an override; the precedence is written where the walk lives so the caller in another crate cannot quietly change it. | [`unicast.rs`](../../SRC/src/unicast.rs) header, "Precedence"; kept by `apkaudio_nmos_control::registry_agent::query_base_with`. |
 | **No half-implemented security.** No DNSSEC validation rather than one that accepts everything. | `unicast.rs:53`. |
-| **A host that cannot hunt says so and stays up.** If the mDNS daemon cannot start, the agent restates `Agent/state = unavailable` (unkept, every `restate_s`) and retries, instead of returning into a Docker restart loop. | `say_unavailable` and the daemon loop in `run_browse_agent`; test `mdns_failure_is_retried_not_returned`. |
+| **A host that cannot hunt says so and stays up.** If the mDNS daemon cannot start, the agent restates `Agent/state = unavailable` (unkept, every `restate_s`) and retries, instead of returning into a Docker restart loop. | `say_unavailable` and `until_started`; test `mdns_failure_is_retried_not_returned` drives two refusals and a start. |
 | **Quiet when nothing changed.** A re-resolve that changes nothing writes and prints nothing; only the restate repeats it. | the `published` map in `run_browse_agent`. |
 | **Numbers sort as numbers.** `v1.10` ranks above `v1.9`. | `version_key` / `summarise_versions`, `lib.rs:151`; shared with `unicast.rs`. |
 
@@ -23,3 +24,9 @@ rules live in the root: [Refusal over fabrication](../../../../../../Documentati
 * There is no `domain` key in [`SRC/config.ini`](../../SRC/config.ini) (it was read by nothing and is
   gone): the browse names `local.` in `NMOS_SERVICES`, and the unicast walk takes its domains from
   `/etc/resolv.conf` or its caller.
+* **The compose file and the build reach into DISCOVERY.Engine by relative path (kept by design).**
+  `Docker/docker-compose.yml` `extends: ../../../DISCOVERY.Engine/Docker/plugin-base.yml` and includes
+  its `plugin-volumes.yml`, and the crate builds as `DISCOVERY.Engine/SRC/members/PLUGIN.NMOS`. That is
+  the house plugin pattern (one shared plugin image, one capability floor, one volume declaration;
+  `.apk.scripts/plugin_standalone.py`), not a private reach: standalone CI gets the same files from
+  the SDK tag.
