@@ -7,8 +7,8 @@ edition = "2024"
 # IS-04 registry agent used to run beside it in one `nmos` container (audit
 # §10.2); it is its own stack and container now (`apk-nmos-control`), so this
 # crate no longer depends on it.
-apk-plugin-runner = { git = "https://github.com/LikeDotAudio/APK.plugin.SDK", tag = "sdk-v0.5" }
-apkaudio-contracts = { git = "https://github.com/LikeDotAudio/APK.plugin.SDK", tag = "sdk-v0.5" }
+apk-plugin-runner = { git = "https://github.com/LikeDotAudio/APK.plugin.SDK", tag = "sdk-v0.6" }
+apkaudio-contracts = { git = "https://github.com/LikeDotAudio/APK.plugin.SDK", tag = "sdk-v0.6" }
 mdns-sd = "0.20"
 rumqttc = "0.24"
 
