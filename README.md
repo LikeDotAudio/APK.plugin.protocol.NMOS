@@ -47,7 +47,7 @@ here does not run it.
 ## Topics
 
 ```
-APK.audio/System/Protocols/nmos/Device/{host}_{port}/{key}   ← NOT retained, QoS 0: said on change, restated every 30 s
+APK.audio/System/Protocols/nmos/Device/{host}_{port}/{key}   ← NOT retained, QoS 0: said on change, restated every `restate_s` (30 s)
   key ∈ service role api_versions api_proto api_auth priority host port
         addresses mac vendor last_online online_since
 ```
@@ -64,8 +64,15 @@ the row (`presence::unlink`), so `Device/+` never lists a leaf-only ghost. The r
 ## Configuration
 
 `SRC/config.ini`, section `[nmos]`: `enabled`, the two presence keys above, and
-`domain = local.` — which no code reads: the browse names `local.` in
+`restate_s` (default file: 30) — the seconds between restatements of every row
+still advertised, read by `Settings::from_ini` in `src/lib.rs`; a missing or
+malformed value is refused by name, said on the bus as `unavailable`, never
+guessed. There is no `domain` key: the browse names `local.` in
 `NMOS_SERVICES`, and `unicast.rs` takes its domains from `/etc/resolv.conf`. The broker is `MQTT_HOST` / `MQTT_PORT` from the runner.
+
+The receive loop calls `apk_plugin_runner::tick()` every turn and wakes at
+least every 30 s, so the runner's stall detection is armed even on a silent
+bench.
 `SRC/gui/manifest.json` declares the `nmos` console family (tab `5_NMOS`, tree
 `7_Device_Consoles`) and `SRC/gui/nmos/nmos.json` is its panel.
 
@@ -103,10 +110,10 @@ COMPOSE_PROFILES=discovery docker compose -f PODS/POD.THICK/PLUGINS/PLUGIN.NMOS/
   `apkaudio_contracts::topics::sanitize_segment`; presence through
   `apk_plugin_runner::presence`.
 
-- **Unreachable is dead.** Device rows are unkept and restated every 30 s, as
+- **Unreachable is dead.** Device rows are unkept and restated every `restate_s` (30 s), as
   AVB, PRINTERS, PTP and RAVENNA do; a node that stops advertising drops out of
   the restate, and an empty retained write clears any copy an older build left
-  kept (`say`, `RESTATE`, `run_browse_agent`; test
+  kept (`say`, `Settings::restate`, `run_browse_agent`; test
   `nothing_the_browse_agent_says_is_kept`).
 
 ---

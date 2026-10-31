@@ -26,7 +26,7 @@ mosquitto_sub -t 'APK.audio/System/Protocols/nmos/Device/#' -v
 | `SRC/src/unicast_tests.rs` | tests against a real loopback DNS socket |
 | `SRC/src/self_test.rs` | module `nmos` self test |
 | `SRC/examples/unicast_discover.rs` | the walk from a terminal; non-zero exit when nothing is found |
-| `SRC/config.ini` | compiled in; `presence_protocols = nmos`, `presence_inactive_after_s = 0` |
+| `SRC/config.ini` | compiled in; `presence_protocols = nmos`, `presence_inactive_after_s = 0`, `restate_s = 30` (`Settings::from_ini`) |
 | `SRC/gui/manifest.json`, `gui/nmos/nmos.json` | the `nmos` console family (tab `5_NMOS`, tree `7_Device_Consoles`) |
 
 ## mDNS browse flow (`run_browse_agent`)

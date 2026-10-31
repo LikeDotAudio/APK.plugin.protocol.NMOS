@@ -50,7 +50,7 @@ use mdns_sd::{ServiceDaemon, ServiceEvent};
 use std::collections::{BTreeSet, HashMap};
 use std::time::Duration;
 use apkaudio_contracts::presence;
-use apkaudio_contracts::topics::sanitize_segment;
+use apkaudio_contracts::topics::{self, sanitize_segment};
 
 /// Implementation state. Discovery is real; the IS-04/IS-05 HTTP APIs are not
 /// implemented, so this is deliberately not the word "complete".
@@ -90,16 +90,59 @@ const DEVICE_KEYS: [&str; 13] = [
 ];
 
 
-/// How often every row still being advertised is said again.
-///
-/// The rows are UNKEPT (QoS 0, retain clear), like AVB, PRINTERS, PTP and
-/// RAVENNA: a discovery row describes what is advertising *now*, and retained it
-/// went on describing a node that had stopped, with nothing to correct it once
-/// this agent was gone. Unkept, a row leaves the bus by not being restated —
-/// which is why this clock is load-bearing. mdns-sd resolves a node again only
-/// when its records change, so without the restate a subscriber that connected
-/// after the first resolution would never see a settled registry at all.
-const RESTATE: Duration = Duration::from_secs(30);
+/// The compiled-in config.ini — the runner publishes it and the agent reads its
+/// tunables out of the same text.
+pub const CONFIG_INI: &str = include_str!("../config.ini");
+
+/// Every tunable this agent reads, from `[nmos]` in config.ini.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Settings {
+    /// How often every row still being advertised is said again (`restate_s`).
+    ///
+    /// The rows are UNKEPT (QoS 0, retain clear), like AVB, PRINTERS, PTP and
+    /// RAVENNA: a discovery row describes what is advertising *now*, and
+    /// retained it went on describing a node that had stopped, with nothing to
+    /// correct it once this agent was gone. Unkept, a row leaves the bus by not
+    /// being restated — which is why this clock is load-bearing. mdns-sd
+    /// resolves a node again only when its records change, so without the
+    /// restate a subscriber that connected after the first resolution would
+    /// never see a settled registry at all.
+    pub restate: Duration,
+}
+
+impl Settings {
+    /// Parse `[nmos]` out of an ini text. A missing or malformed key is named,
+    /// and the error says which, rather than a value guessed.
+    pub fn from_ini(text: &str) -> Result<Settings, String> {
+        let mut in_section = false;
+        let mut restate_s = None;
+        for line in text.lines().map(str::trim) {
+            if line.starts_with('[') {
+                in_section = line == format!("[{}]", self_test::MODULE);
+                continue;
+            }
+            if !in_section || line.starts_with(';') || line.starts_with('#') {
+                continue;
+            }
+            if let Some((key, value)) = line.split_once('=')
+                && key.trim() == "restate_s"
+            {
+                let value = value.trim();
+                restate_s = Some(value.parse::<u64>().map_err(|_| format!("restate_s = {value} is not whole seconds"))?);
+            }
+        }
+        let restate_s = restate_s.ok_or("config.ini declares no restate_s")?;
+        if restate_s == 0 {
+            return Err("restate_s = 0 would restate in a busy loop".into());
+        }
+        Ok(Settings { restate: Duration::from_secs(restate_s) })
+    }
+}
+
+/// The longest the receive loop waits before it ticks again, whatever
+/// `restate_s` says — so a long restate never reads as a stalled agent to the
+/// runner's watchdog (APK_PLUGIN_STALL_SECS, 120 s by default).
+const TICK_AT_LEAST: Duration = Duration::from_secs(30);
 
 /// Publish one row field, unkept. The only publish in this agent.
 fn say(mqtt_client: &rumqttc::Client, topic: impl Into<String>, payload: impl Into<Vec<u8>>) {
@@ -108,7 +151,7 @@ fn say(mqtt_client: &rumqttc::Client, topic: impl Into<String>, payload: impl In
 
 /// Say the agent cannot hunt, through the shared `agent_state` vocabulary.
 /// Its retain flag is not honoured: like the rows, the statement is unkept and
-/// lives one RESTATE at a time, so it leaves the bus once the daemon starts.
+/// lives one restate at a time, so it leaves the bus once the daemon starts.
 fn say_unavailable(mqtt_client: &rumqttc::Client, reason: &str) {
     match apkaudio_contracts::agent_state::AgentReport::unavailable("nmos", reason)
         .and_then(|a| a.publications())
@@ -123,8 +166,14 @@ fn say_unavailable(mqtt_client: &rumqttc::Client, reason: &str) {
     }
 }
 
+/// `APK.audio/System/Protocols/nmos/Device/{host}_{port}`, built by the
+/// contract (`topics::protocols`), never hand-concatenated.
 fn device_prefix(host: &str, port: u16) -> String {
-    format!("APK.audio/System/Protocols/nmos/Device/{}_{}", sanitize_segment(host), port)
+    let segment = format!("{}_{}", sanitize_segment(host), port);
+    // `sanitize_segment` yields a legal level for any input (an empty host
+    // included) and `_<digits>` keeps it legal, so this cannot refuse.
+    topics::protocols(self_test::MODULE, &["Device", &segment])
+        .expect("a sanitised host and a port always make a legal topic level")
 }
 
 fn now_secs() -> u64 {
@@ -211,21 +260,33 @@ pub fn run_browse_agent(mqtt_host: &str, mqtt_port: u16) {
         );
     });
 
+    // A compiled-in config.ini without a usable `restate_s` is a build defect.
+    // Said on the bus as `unavailable` and held, not returned on: a returned
+    // hunter exits the runner 70 and Docker restart-loops the same image.
+    let restate = match Settings::from_ini(CONFIG_INI) {
+        Ok(settings) => settings.restate,
+        Err(why) => loop {
+            eprintln!("🛑 [NMOS] config.ini: {why}");
+            say_unavailable(&mqtt_client, &format!("config.ini: {why}"));
+            std::thread::sleep(TICK_AT_LEAST);
+        },
+    };
+
     // A host whose mDNS daemon cannot start (no multicast socket yet, port
     // 5353 refused) is a standing condition, not a crash: returning here hands
     // the runner a finished hunter, which it exits 70 on, and Docker restarts
     // the container into the same refusal forever. So the agent stays up, SAYS
     // it is unavailable — unkept like every row here, so restated on the
-    // RESTATE cadence — and tries the daemon again each time (the same shape as
+    // restate cadence — and tries the daemon again each time (the same shape as
     // AVB-Milan's capture loop).
     let mdns = loop {
         match ServiceDaemon::new() {
             Ok(d) => break d,
             Err(e) => {
                 let reason = format!("could not start mDNS daemon: {e}");
-                eprintln!("🛑 [NMOS] {reason} — saying so, retrying in {}s", RESTATE.as_secs());
+                eprintln!("🛑 [NMOS] {reason} — saying so, retrying in {}s", restate.as_secs());
                 say_unavailable(&mqtt_client, &reason);
-                std::thread::sleep(RESTATE);
+                std::thread::sleep(restate);
             }
         }
     };
@@ -268,7 +329,11 @@ pub fn run_browse_agent(mqtt_host: &str, mqtt_port: u16) {
     let mut announced: HashMap<String, String> = HashMap::new();
 
     loop {
-        let next = match rx.recv_timeout(RESTATE) {
+        // STALL DETECTION (RP-09): one tick per turn of the receive loop arms
+        // the runner's per-agent clock. The receive times out at least every
+        // TICK_AT_LEAST, so a silent bench still ticks.
+        apk_plugin_runner::tick();
+        let next = match rx.recv_timeout(restate.min(TICK_AT_LEAST)) {
             Ok(next) => Some(next),
             // Idle — the normal state of a settled bench, and exactly when the
             // restate matters most.
@@ -278,7 +343,7 @@ pub fn run_browse_agent(mqtt_host: &str, mqtt_port: u16) {
         };
         // Checked on the event path too, so a chatty bench that keeps
         // `recv_timeout` from expiring still restates on schedule.
-        if last_restate.elapsed() >= RESTATE {
+        if last_restate.elapsed() >= restate {
             last_restate = std::time::Instant::now();
             for (topic, value) in &published {
                 say(&mqtt_client, topic.clone(), value.clone().into_bytes());
@@ -469,6 +534,29 @@ mod tests {
         let agent = &src[start..start + src[start..].find("let (tx, rx)").unwrap()];
         assert!(!agent.contains("return;"), "the agent must not return before browsing");
         assert!(agent.contains("say_unavailable("));
+    }
+
+    /// The restate interval is config, not source (RP-14): the compiled-in
+    /// file names it, and a missing or broken key is refused by name.
+    #[test]
+    fn the_restate_interval_comes_from_config_ini() {
+        assert_eq!(Settings::from_ini(CONFIG_INI).map(|s| s.restate), Ok(Duration::from_secs(30)));
+        assert!(Settings::from_ini("[nmos]\n").unwrap_err().contains("restate_s"));
+        assert!(Settings::from_ini("[nmos]\nrestate_s = soon\n").unwrap_err().contains("restate_s"));
+        assert!(Settings::from_ini("[nmos]\nrestate_s = 0\n").is_err());
+    }
+
+    /// The device prefix is the contract's Protocols family (RP-07).
+    #[test]
+    fn the_device_prefix_is_built_by_the_contract() {
+        let prefix = device_prefix("nmos-cpp.local", 3212);
+        assert_eq!(prefix, "APK.audio/System/Protocols/nmos/Device/nmos-cpp_local_3212");
+        assert!(matches!(
+            apkaudio_contracts::topics::parse(&format!("{prefix}/role")),
+            apkaudio_contracts::topics::ParsedTopic::Protocols { .. }
+        ));
+        // A nameless host still makes a legal level rather than a panic.
+        let _ = device_prefix("", 3210);
     }
 
     /// Lexical sorting would rank v1.9 above v1.10.
