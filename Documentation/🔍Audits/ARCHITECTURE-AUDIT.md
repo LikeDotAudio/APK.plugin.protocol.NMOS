@@ -33,3 +33,5 @@ Score key: 3 meets the standard · 2 minor gaps · 1 significant gaps · 0 absen
 3. **Good — versioned crate edge.** NMOS_CONTROL depends on this crate by git `rev`, with a workspace `[patch]` (`DISCOVERY.Engine/SRC/Cargo.toml`) for local builds — the right shape for a cross-repo Rust dependency.
 
 Findings 4–10 of the 2026-10-30 audit are delivered or recorded as kept by design — see [🌍Publishing/DELIVERY.md](../%F0%9F%8C%8DPublishing/DELIVERY.md).
+
+**Needs owner:** repin `apkaudio-maclookup` from `rev = "7ba39dd…"` to `tag = "maclookup-v0.2.0"` once the owner pushes LIB.MAC_LOOKUP and publishes that tag (W03 handoff). Workspace builds already get the new cache and `Mac` through the engine `[patch]`; only a standalone build waits on the tag.
