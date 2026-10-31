@@ -29,7 +29,7 @@ Rows land on the broker; each device presents its own `SRC/gui/nmos` panel, reta
 
 ## Not automated
 
-* CI: `.github/workflows/ci.yml` calls the SDK's `plugin-ci.yml@sdk-v0.7` (pinned to the same tag as the code).
+* CI: `.github/workflows/ci.yml` calls the SDK's `plugin-ci.yml@sdk-v0.9` (pinned to the same tag as the code).
 * No registry: the image is built on each node.
 
 ## Delivered from the 2026-10-30 audit
@@ -46,3 +46,4 @@ Part of the shared plugin image (`apk-plugins:local`, container `Plugin-NMOS`).
 - **Row schema from the contract** (contracts 7763d73b6, follow-up to PLUGIN.NMOS_CONTROL's shared-table item) — the local `DEVICE_KEYS` is `apkaudio_contracts::nmos_rows::ENDPOINT_KEYS`, and `device_prefix` is `nmos_rows::device_prefix(&nmos_rows::endpoint_id(host, port))`; `the_row_is_a_contract_nmos_row` holds every role this agent writes to `nmos_rows::row_problems` (vectors `contracts/vectors/nmos_rows.json`). `cargo test -p apkaudio-nmos` 32 passed. Standalone build needs the next SDK tag.
 - **LIB.MAC_LOOKUP pinned by tag** (owner-authorised tag wave, 2026-10-31) — `apkaudio-maclookup` repinned from `rev = "7ba39dd…"` to `tag = "maclookup-v0.2.0"` (b670f2c), beside the SDK at `sdk-v0.6`; the engine `[patch]`/`members/` design is unchanged. A standalone build now gets the multi-writer cache and `Mac` as well as the runner `Session`/`unkept` this crate adopted: verified by copying the crate alone (no `.cargo` patch, no lock) and running `cargo test` against GitHub — passes, as does the workspace `cargo test -p`.
 - **SDK repinned to `sdk-v0.7`** (172e12c) — `SRC/Cargo.toml` takes the runner and contracts, and `.github/workflows/ci.yml` calls `plugin-ci.yml`, at the same tag; it ships `docker/plugin-volumes.yml`, so plugin CI's standalone compose check resolves. Verified 2026-10-31: `git archive HEAD` alone, `cargo test` against GitHub — 32 pass; plugin-ci's compose step reproduced (`plugin-base.yml` + `plugin-volumes.yml` from `sdk-v0.7`, `docker compose config -q`) passes.
+- **SDK `sdk-v0.9`, MAC_LOOKUP `maclookup-v0.3.0`, crate 0.2.0** (PLAN-3432.01) — `SRC/Cargo.toml` takes the runner and contracts at `sdk-v0.9` and `apkaudio-maclookup` at `tag = "maclookup-v0.3.0"` (cut on `sdk-v0.9`), so a standalone lock holds one `apkaudio-contracts`; `ci.yml` calls `plugin-ci.yml@sdk-v0.9`; `apkaudio-nmos` 0.1.0 → 0.2.0. PLUGIN.NMOS_CONTROL pins this commit by full `rev` (it pinned af623bc, which still built on `sdk-v0.1`). Verified 2026-10-31: the tree alone (`git archive`, no `.cargo` patch), `cargo test` against GitHub — 32 pass.
