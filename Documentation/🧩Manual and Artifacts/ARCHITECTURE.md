@@ -9,7 +9,7 @@ agent run as container `Plugin-NMOS`, and a unicast DNS-SD library used by the N
 
 ```sh
 cd PODS/POD.THICK/DISCOVERY.Engine/SRC
-cargo test -p apkaudio-nmos                                           # 31 tests
+cargo test -p apkaudio-nmos                                           # 32 tests
 cargo run -p apkaudio-nmos --example unicast_discover                 # resolv.conf search domains
 cargo run -p apkaudio-nmos --example unicast_discover -- 127.0.0.1:5100 testsuite.nmos.tv
 COMPOSE_PROFILES=discovery docker compose -f PODS/POD.THICK/PLUGINS/PLUGIN.NMOS/Docker/docker-compose.yml up -d

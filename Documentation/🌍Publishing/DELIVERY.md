@@ -16,7 +16,7 @@ this crate by path).
 
 ## Tested
 
-By hand: `cargo test -p apkaudio-nmos` (31 tests; the unicast ones use a loopback DNS socket). The
+By hand: `cargo test -p apkaudio-nmos` (32 tests; the unicast ones use a loopback DNS socket). The
 runner answers `outgoing/selftest_run` for module `nmos`. The AMWA suite
 (`PODS/POD.protocols/PROTOCOL.discovery.NMOS`) grades the controller, not this agent.
 
@@ -43,3 +43,4 @@ Part of the shared plugin image (`apk-plugins:local`, container `Plugin-NMOS`).
 - **Cross-repo build files** — Kept by design: `extends: …/DISCOVERY.Engine/Docker/plugin-base.yml` and the `members/` symlink are the house plugin pattern (PRINCIPLES.md "Where the code bends a rule"). The compose's copied volume block is now `include: …/plugin-volumes.yml`; `docker compose config` is byte-identical before/after. Standalone CI of the include needs the next SDK tag.
 - **README Configuration drift** — already fixed: README says there is no `domain` key, matching `SRC/config.ini`.
 - **CI pinned to the SDK tag** — `ci.yml` uses `plugin-ci.yml@sdk-v0.5` (was `@main`).
+- **Row schema from the contract** (contracts 7763d73b6, follow-up to PLUGIN.NMOS_CONTROL's shared-table item) — the local `DEVICE_KEYS` is `apkaudio_contracts::nmos_rows::ENDPOINT_KEYS`, and `device_prefix` is `nmos_rows::device_prefix(&nmos_rows::endpoint_id(host, port))`; `the_row_is_a_contract_nmos_row` holds every role this agent writes to `nmos_rows::row_problems` (vectors `contracts/vectors/nmos_rows.json`). `cargo test -p apkaudio-nmos` 32 passed. Standalone build needs the next SDK tag.

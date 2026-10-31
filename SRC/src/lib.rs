@@ -50,7 +50,6 @@ use mdns_sd::{ServiceDaemon, ServiceEvent};
 use std::collections::{BTreeSet, HashMap};
 use std::time::Duration;
 use apkaudio_contracts::presence;
-use apkaudio_contracts::topics::{self, sanitize_segment};
 use apk_plugin_runner::session::Session;
 use apk_plugin_runner::unkept::{forget, publications_of, say};
 
@@ -70,26 +69,13 @@ const NMOS_SERVICES: [(&str, &str); 5] = [
     ("_nmos-system._tcp.local.", "System"),
 ];
 
-const DEVICE_KEYS: [&str; 13] = [
-    "service",
-    "role",
-    "api_versions",
-    "api_proto",
-    "api_auth",
-    "priority",
-    "host",
-    "port",
-    "addresses",
-    // Neither is advertised. Both are recovered from the SLAAC IPv6 address,
-    // which carries the host's MAC in its low 64 bits — `mac` is the address
-    // itself, `vendor` is who holds that IEEE block. Blank for a host using
-    // privacy addressing, where the interface ID is genuinely random.
-    "mac",
-    "vendor",
-    // `-1` while the node is advertising — see `apkaudio_contracts::presence`.
-    "last_online",
-    "online_since",
-];
+/// The row's keys — the contract's, not this crate's: the `nmos` table is
+/// written by two crates (this one and PLUGIN.NMOS_CONTROL), and
+/// `apkaudio_contracts::nmos_rows` is the one schema both test against.
+/// `mac`/`vendor` are recovered from the SLAAC IPv6 address (blank `-` for a
+/// privacy-addressed host); `last_online` is `-1` while advertising (see
+/// `apkaudio_contracts::presence`).
+use apkaudio_contracts::nmos_rows::{self, ENDPOINT_KEYS as DEVICE_KEYS};
 
 
 /// The compiled-in config.ini — the runner publishes it and the agent reads its
@@ -182,10 +168,9 @@ fn until_started<D, E: std::fmt::Display>(
 /// `APK.audio/System/Protocols/nmos/Device/{host}_{port}`, built by the
 /// contract (`topics::protocols`), never hand-concatenated.
 fn device_prefix(host: &str, port: u16) -> String {
-    let segment = format!("{}_{}", sanitize_segment(host), port);
-    // `sanitize_segment` yields a legal level for any input (an empty host
-    // included) and `_<digits>` keeps it legal, so this cannot refuse.
-    topics::protocols(self_test::MODULE, &["Device", &segment])
+    // `endpoint_id` is `{sanitize_segment(host)}_{port}`, a legal level for any
+    // input (an empty host included), so this cannot refuse.
+    nmos_rows::device_prefix(&nmos_rows::endpoint_id(host, port))
         .expect("a sanitised host and a port always make a legal topic level")
 }
 
@@ -501,6 +486,7 @@ fn nmos_sighting(endpoint: &str) -> apkaudio_contracts::device_publish::Sighting
 #[cfg(test)]
 mod tests {
     use super::*;
+    use apkaudio_contracts::topics;
 
     /// This crate is no longer a stub, and the marker must say so — the old test
     /// asserted `STATUS == "stub"` precisely so implementing it could not pass
@@ -599,6 +585,21 @@ mod tests {
         assert!(row.iter().all(|(_, v)| !v.is_empty()), "{row:?}");
         let said: Vec<String> = row.into_iter().map(|(t, _)| t).collect();
         assert_eq!(said, row_topics(&device_prefix(&s.host, s.port)));
+    }
+
+    /// The contract's row schema (`apkaudio_contracts::nmos_rows`, vectors
+    /// `contracts/vectors/nmos_rows.json`): every role this agent writes, with
+    /// the key set it publishes, is a valid `nmos` table row.
+    #[test]
+    fn the_row_is_a_contract_nmos_row() {
+        let s = fixture();
+        let row = s.row("", "", 0);
+        let prefix = format!("{}/", device_prefix(&s.host, s.port));
+        let keys: Vec<&str> = row.iter().map(|(t, _)| t.strip_prefix(&prefix).unwrap()).collect();
+        for (_, role) in NMOS_SERVICES {
+            assert_eq!(nmos_rows::row_problems(role, keys.iter().copied()), Vec::<String>::new(), "{role}");
+        }
+        assert_eq!(device_prefix("nmos-node.local.", 3210), nmos_rows::device_prefix(&nmos_rows::endpoint_id("nmos-node.local.", 3210)).unwrap());
     }
 
     /// A daemon that cannot start is said unavailable and retried, not

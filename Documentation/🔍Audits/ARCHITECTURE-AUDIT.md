@@ -23,7 +23,7 @@ NMOS *discovery*: browse five `_nmos-*._tcp` mDNS services and publish one bus r
 | Coupling & Cohesion | 3 | Clear split with NMOS_CONTROL (meet only in the bus table) and a versioned crate edge; the compose/build reach into DISCOVERY.Engine is the recorded house pattern; CI pinned to `@sdk-v0.5`. |
 | Boundary Integrity | 3 | `mdns-sd` is confined to `run_browse_agent`; the bus session is the runner's `Session` and every publish goes through `apk_plugin_runner::unkept`. |
 | Duplication Control | 3 | Topics by `topics::protocols`; session, say/restate/forget and the shared volumes all come from the runner / plugin-volumes.yml. |
-| Testing & Contracts | 3 | 31 tests incl. 18 unicast cases against the AMWA IS-04-04 shape; the row contract is tested on the builder (exact topics and values), the daemon retry on a driven refusal. |
+| Testing & Contracts | 3 | 32 tests incl. 18 unicast cases against the AMWA IS-04-04 shape; the row contract is tested on the builder (exact topics and values), the daemon retry on a driven refusal. |
 | Change management | 3 | SDK pinned by tag (code and CI), deps by rev, the NMOS split and the retained→unkept change documented; README matches config.ini. |
 Score key: 3 meets the standard · 2 minor gaps · 1 significant gaps · 0 absent / violated.
 

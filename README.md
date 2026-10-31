@@ -80,7 +80,7 @@ bench.
 
 ```sh
 # from PODS/POD.THICK/DISCOVERY.Engine/SRC
-cargo test -p apkaudio-nmos                                  # 31 tests (2026-10-30)
+cargo test -p apkaudio-nmos                                  # 32 tests (2026-10-30)
 cargo run -p apkaudio-nmos --example unicast_discover        # every search domain in /etc/resolv.conf
 cargo run -p apkaudio-nmos --example unicast_discover -- 127.0.0.1:5100 testsuite.nmos.tv
 
