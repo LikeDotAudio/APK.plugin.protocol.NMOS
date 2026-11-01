@@ -515,8 +515,8 @@ mod tests {
         assert_eq!(manifest.telemetry_port, 8206);
         let config = apk_plugin_runner::ini_to_json(include_str!("../config.ini"));
         let keys: Vec<&str> = config["nmos"].as_object().unwrap().keys().map(String::as_str).collect();
-        // 1 = `enabled`, which nothing reads (see agent.toml [config]).
-        assert_eq!(manifest.unread_config_keys(keys), Some(1), "an [nmos] key nothing reads");
+        // `enabled` is read by apk-plugin-runner (module_enabled; agent.toml [config]).
+        assert_eq!(manifest.unread_config_keys(keys), Some(0), "every [nmos] key is read — `enabled` by the runner (module_enabled)");
     }
 
     use super::*;
