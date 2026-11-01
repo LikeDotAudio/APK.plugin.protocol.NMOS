@@ -326,6 +326,9 @@ pub fn run_browse_agent(mqtt_host: &str, mqtt_port: u16) {
     let restate = match Settings::from_ini(CONFIG_INI) {
         Ok(settings) => settings.restate,
         Err(why) => loop {
+            // Held, not returned on — but a fault it cannot serve past: the
+            // loopback reads `failed` for as long as it holds (ROAD-3472).
+            apk_plugin_runner::loopback::fatal(format!("config.ini: {why}"));
             eprintln!("🛑 [NMOS] config.ini: {why}");
             say_unavailable(&mqtt_client, &format!("config.ini: {why}"));
             std::thread::sleep(TICK_AT_LEAST);
@@ -348,6 +351,7 @@ pub fn run_browse_agent(mqtt_host: &str, mqtt_port: u16) {
                 let role = role.to_string();
                 std::thread::spawn(move || {
                     while let Ok(ev) = receiver.recv() {
+                        from_the_wire(&ev);
                         if tx.send((role.clone(), ev)).is_err() {
                             break;
                         }
@@ -388,7 +392,11 @@ pub fn run_browse_agent(mqtt_host: &str, mqtt_port: u16) {
             // restate matters most.
             Err(std::sync::mpsc::RecvTimeoutError::Timeout) => None,
             // Every browse thread has gone; there is nothing left to hear.
-            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                eprintln!("🛑 [NMOS] every mDNS browse ended");
+                apk_plugin_runner::loopback::fatal("every mDNS browse ended");
+                break;
+            }
         };
         // Checked on the event path too, so a chatty bench that keeps
         // `recv_timeout` from expiring still restates on schedule.
@@ -474,6 +482,19 @@ pub fn run_browse_agent(mqtt_host: &str, mqtt_port: u16) {
     }
 }
 
+/// TRAFFIC, counted for the loopback telemetry (ROAD-3472): the one fact that
+/// moves this agent from `running` to `serving`. A found, resolved or removed
+/// NMOS service is something the LAN said in mDNS; the daemon's search
+/// start/stop events are its own timers and are not packets.
+fn from_the_wire(event: &ServiceEvent) {
+    if matches!(
+        event,
+        ServiceEvent::ServiceFound(..) | ServiceEvent::ServiceResolved(..) | ServiceEvent::ServiceRemoved(..)
+    ) {
+        apk_plugin_runner::loopback::packet_received();
+    }
+}
+
 /// One API endpoint, as a presence sighting. PLAN-3318.01.
 ///
 /// IDENTITY IS `host:port`, the key this agent merges every role on. Nothing of
@@ -485,6 +506,19 @@ fn nmos_sighting(endpoint: &str) -> apkaudio_contracts::device_publish::Sighting
 
 #[cfg(test)]
 mod tests {
+    /// The manifest the binary compiles in parses, declares the loopback port
+    /// and lists every key of config.ini's [nmos] that code reads (ROAD-3472).
+    #[test]
+    fn the_compiled_in_manifest_parses_and_reads_every_config_key() {
+        let manifest = apkaudio_contracts::embedded_manifest!().expect("agent.toml parses");
+        assert_eq!(manifest.name, "nmos");
+        assert_eq!(manifest.telemetry_port, 8206);
+        let config = apk_plugin_runner::ini_to_json(include_str!("../config.ini"));
+        let keys: Vec<&str> = config["nmos"].as_object().unwrap().keys().map(String::as_str).collect();
+        // 1 = `enabled`, which nothing reads (see agent.toml [config]).
+        assert_eq!(manifest.unread_config_keys(keys), Some(1), "an [nmos] key nothing reads");
+    }
+
     use super::*;
     use apkaudio_contracts::topics;
 

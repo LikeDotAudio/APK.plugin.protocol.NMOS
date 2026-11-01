@@ -1,0 +1,30 @@
+# Part of the APK.audio project — http://APK.audio — made by Anthony Kuzub
+# MIT Licence. Free, for everyone, for ever. Full text in LICENSE at the root.
+#
+# WHAT THIS AGENT IS, compiled into apk-nmos by `manifest = "agent.toml"` in
+# src/bin/apk-nmos.rs (apkaudio_contracts::embedded_manifest!, ROAD-3472). Not
+# read at run time: the image carries the binary, not this file.
+
+[agent]
+name = "nmos"
+kind = "protocol"
+title = "NMOS mDNS browser (IS-04 / IS-09)"
+status = "discovery-only"
+summary = "Browses mDNS for IS-04 Node, Query and Registration APIs and IS-09 System APIs, merges them per host:port and publishes one unkept row per endpoint. Never registers, queries or connects."
+
+[telemetry]
+# GET /status and GET /telemetry on 127.0.0.1:8206 (host networking, so this
+# is the node's loopback and NODE.BareMetal's supervisor reads it). `running`
+# until the first mDNS answer, `serving` after. A packet is one event the mDNS
+# daemon hands up from the wire for an NMOS service type (src/lib.rs,
+# `from_the_wire`, called on each browse thread): an instance found, resolved
+# or removed. The daemon's own SearchStarted/SearchStopped are its timers and
+# are not counted. APK_TELEMETRY_PORT moves it; 0 turns it off.
+port = 8206
+
+[config]
+# Every key of config.ini's [nmos] that code reads: raise and presence_* by
+# apk-plugin-runner (module_raise, presence::settings_from_config); restate_s
+# by Settings::from_ini. `enabled` is read by nothing and is counted in
+# `unread_config_keys` (1) until a reader exists or it goes.
+reads = ["raise", "restate_s", "presence_protocols", "presence_inactive_after_s"]
