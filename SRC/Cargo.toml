@@ -7,10 +7,10 @@ edition = "2024"
 # IS-04 registry agent used to run beside it in one `nmos` container (audit
 # §10.2); it is its own stack and container now (`apk-nmos-control`), so this
 # crate no longer depends on it.
-apk-plugin-runner = { git = "https://github.com/LikeDotAudio/APK.plugin.SDK", tag = "sdk-v2.0" }
-apkaudio-contracts = { git = "https://github.com/LikeDotAudio/APK.plugin.SDK", tag = "sdk-v2.0" }
+apk-plugin-runner = { git = "https://github.com/LikeDotAudio/APK.plugin.SDK", tag = "sdk-v2.1" }
+apkaudio-contracts = { git = "https://github.com/LikeDotAudio/APK.plugin.SDK", tag = "sdk-v2.1" }
 mdns-sd = "0.20"
 rumqttc = "0.24"
 
 # The MAC a SLAAC address was built from, and who IEEE gave that block to.
-apkaudio-maclookup = { git = "https://github.com/LikeDotAudio/APK.plugin.protocol.MAC_LOOKUP", tag = "maclookup-v2.0.0" }
+apkaudio-maclookup = { git = "https://github.com/LikeDotAudio/APK.plugin.protocol.MAC_LOOKUP", tag = "maclookup-v2.1.0" }
