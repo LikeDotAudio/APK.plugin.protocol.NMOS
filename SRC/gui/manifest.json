@@ -7,6 +7,12 @@
   "nmos": {
     "device_depth": 1,
     "tab": "5_NMOS",
-    "tree": "7_Device_Consoles"
+    "tree": "7_Device_Consoles",
+    "bim": {
+      "part": "protocol/nmos",
+      "models": {
+        "nmosnode": "unidentified/nmos-node"
+      }
+    }
   }
 }
