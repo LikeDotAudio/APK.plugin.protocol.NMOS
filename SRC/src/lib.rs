@@ -329,7 +329,7 @@ pub fn run_browse_agent(mqtt_host: &str, mqtt_port: u16) {
             // Held, not returned on — but a fault it cannot serve past: the
             // loopback reads `failed` for as long as it holds (ROAD-3472).
             apk_plugin_runner::loopback::fatal(format!("config.ini: {why}"));
-            eprintln!("🛑 [NMOS] config.ini: {why}");
+            apk_plugin_runner::elog!(error, "🛑 [NMOS] config.ini: {why}");
             say_unavailable(&mqtt_client, &format!("config.ini: {why}"));
             std::thread::sleep(TICK_AT_LEAST);
         },
@@ -338,7 +338,7 @@ pub fn run_browse_agent(mqtt_host: &str, mqtt_port: u16) {
     // Said unavailable (unkept, so restated on the restate cadence) and
     // retried — never returned on; see `until_started`.
     let mdns = until_started(ServiceDaemon::new, |reason| {
-        eprintln!("🛑 [NMOS] {reason} — saying so, retrying in {}s", restate.as_secs());
+        apk_plugin_runner::elog!(error, "🛑 [NMOS] {reason} — saying so, retrying in {}s", restate.as_secs());
         say_unavailable(&mqtt_client, reason);
         std::thread::sleep(restate);
     });
@@ -358,7 +358,7 @@ pub fn run_browse_agent(mqtt_host: &str, mqtt_port: u16) {
                     }
                 });
             }
-            Err(e) => eprintln!("   ⚠️  [NMOS] cannot browse {stype}: {e}"),
+            Err(e) => apk_plugin_runner::elog!(warn, "   ⚠️  [NMOS] cannot browse {stype}: {e}"),
         }
     }
     drop(tx);
@@ -393,7 +393,7 @@ pub fn run_browse_agent(mqtt_host: &str, mqtt_port: u16) {
             Err(std::sync::mpsc::RecvTimeoutError::Timeout) => None,
             // Every browse thread has gone; there is nothing left to hear.
             Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-                eprintln!("🛑 [NMOS] every mDNS browse ended");
+                apk_plugin_runner::elog!(error, "🛑 [NMOS] every mDNS browse ended");
                 apk_plugin_runner::loopback::fatal("every mDNS browse ended");
                 break;
             }
